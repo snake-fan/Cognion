@@ -23,6 +23,194 @@ textarea {
   font: inherit;
 }
 
+.landing-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: #1e1e1e;
+}
+
+.landing-hero {
+  width: min(920px, 100%);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.landing-title {
+  margin: 0;
+  color: #f7f7f7;
+  font-size: clamp(56px, 9vw, 110px);
+  line-height: 1.05;
+  letter-spacing: 1px;
+}
+
+.landing-subtitle {
+  margin: 50px 0 34px;
+  color: #a8a8a8;
+  line-height: 1.8;
+  font-size: 16px;
+}
+
+.landing-enter-button {
+  border: 1px solid #d0d0d0;
+  background: transparent;
+  color: #dcdcdc;
+  border-radius: 999px;
+  padding: 12px 34px;
+  min-width: 180px;
+  font-size: 15px;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.landing-enter-button:hover {
+  background: #f0f0f0;
+  color: #171717;
+  border-color: #f0f0f0;
+}
+
+.landing-enter-button:focus-visible {
+  outline: none;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16);
+}
+
+.library-page {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 48px 56px;
+  background: #1e1e1e;
+}
+
+.library-hero {
+  max-width: 1080px;
+  margin: 0 auto 28px;
+}
+
+.library-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.2;
+  color: #f3f3f3;
+}
+
+.library-subtitle {
+  margin: 12px 0 24px;
+  color: #a9a9a9;
+}
+
+.library-projects {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.library-projects-header {
+  margin-bottom: 14px;
+  font-size: 16px;
+  color: #c8c8c8;
+}
+
+.home-upload-panel {
+  width: 100%;
+  min-height: 220px;
+  border: 2px dashed #4b4b4b;
+  border-radius: 14px;
+  background: #202020;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #d8d8d8;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.home-upload-panel:hover,
+.home-upload-panel:focus-visible {
+  border-color: #0e639c;
+  background: #1f2730;
+  outline: none;
+}
+
+.home-upload-plus {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  border: 1px solid #5b5b5b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  line-height: 1;
+}
+
+.home-upload-text {
+  font-size: 16px;
+  color: #cccccc;
+}
+
+.home-upload-input {
+  display: none;
+}
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.project-card {
+  border: 1px solid #3f3f3f;
+  border-radius: 12px;
+  padding: 14px;
+  background: #252526;
+  color: #d5d5d5;
+  text-align: left;
+  cursor: pointer;
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.project-card:hover {
+  border-color: #0e639c;
+  transform: translateY(-1px);
+}
+
+.project-card-title {
+  font-size: 15px;
+  color: #ebebeb;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.project-card-meta {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #8d8d8d;
+}
+
+.project-empty {
+  border: 1px solid #3d3d3d;
+  border-radius: 12px;
+  padding: 20px;
+  color: #9a9a9a;
+  background: #252526;
+}
+
 .app-shell {
   display: flex;
   width: 100%;
@@ -71,18 +259,6 @@ textarea {
   border-bottom: 1px solid #333;
 }
 
-.collapse-toggle {
-  border: 1px solid #555;
-  background: #3c3c3c;
-  color: #ddd;
-  border-radius: 4px;
-  width: fit-content;
-  min-width: 15px;
-  height: 28px;
-  padding: 0 20px;
-  cursor: pointer;
-}
-
 .logo-button {
   border: none;
   background: transparent;
@@ -125,6 +301,11 @@ textarea {
   border-color: #0e639c;
   background: #17384d;
   color: #fff;
+}
+
+.feature-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .center-panel {
@@ -180,19 +361,6 @@ textarea {
   text-align: center;
   font-size: 12px;
   color: #bdbdbd;
-}
-
-.upload-button {
-  background: #0e639c;
-  border: none;
-  color: white;
-  padding: 6px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.upload-button input {
-  display: none;
 }
 
 .pdf-panel {
@@ -381,6 +549,7 @@ textarea {
 .message-quote-bubble {
   width: 100%;
   text-align: left;
+  outline: none;
   border: 1px solid rgba(110, 110, 110, 0.38);
   background: rgba(68, 68, 68, 0.24);
   color: #bcbcbc;
@@ -389,6 +558,8 @@ textarea {
   line-height: 1.55;
   padding: 8px 10px;
   cursor: pointer;
+  user-select: text;
+  -webkit-user-select: text;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -411,6 +582,7 @@ textarea {
   max-height: 180px;
   overflow: auto;
   white-space: pre-wrap;
+  cursor: text;
 }
 
 .message-quote-bubble.selected {
