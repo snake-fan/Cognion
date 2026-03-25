@@ -41,6 +41,14 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_database() -> None:
-    from .models import ChatMessage, Paper
+    from .models import ChatMessage, Folder, Paper, PaperPlacement
 
-    Base.metadata.create_all(bind=engine, tables=[Paper.__table__, ChatMessage.__table__])
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            Paper.__table__,
+            ChatMessage.__table__,
+            Folder.__table__,
+            PaperPlacement.__table__,
+        ],
+    )

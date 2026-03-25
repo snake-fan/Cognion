@@ -5,5 +5,38 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return
+          }
+
+          if (id.includes('react-pdf') || id.includes('pdfjs-dist')) {
+            return 'pdf-vendor'
+          }
+
+          if (id.includes('highlight.js')) {
+            return 'highlight-vendor'
+          }
+
+          if (
+            id.includes('react-markdown') ||
+            id.includes('remark-math') ||
+            id.includes('rehype-katex') ||
+            id.includes('rehype-highlight') ||
+            id.includes('katex')
+          ) {
+            return 'markdown-vendor'
+          }
+
+          if (id.includes('react') || id.includes('scheduler')) {
+            return 'react-vendor'
+          }
+        }
+      }
+    }
   }
 })

@@ -16,7 +16,7 @@ function formatProjectTime(isoTime) {
   })
 }
 
-function ProjectCard({ project, onOpen }) {
+function ProjectCard({ project, onOpen, onDragStart, onDelete }) {
   const title = project.title || project.name || '未命名论文'
   const authors = project.authors || '未知'
   const topic = project.research_topic || '未标注'
@@ -25,7 +25,13 @@ function ProjectCard({ project, onOpen }) {
   const updatedAt = project.updated_at || project.updatedAt
 
   return (
-    <button type="button" className="project-card" onClick={() => onOpen(project.id)}>
+    <button
+      type="button"
+      className="project-card"
+      onClick={() => onOpen(project.id)}
+      draggable
+      onDragStart={(event) => onDragStart(event, project.id)}
+    >
       <div className="project-card-title">{title}</div>
       <div className="project-card-meta">
         <span>作者：{authors}</span>
@@ -34,6 +40,17 @@ function ProjectCard({ project, onOpen }) {
         <span>出版日期：{publicationDate}</span>
         <span>更新时间：{formatProjectTime(updatedAt)}</span>
       </div>
+      <button
+        type="button"
+        className="project-delete-button"
+        title="删除论文"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDelete(project)
+        }}
+      >
+        删除
+      </button>
     </button>
   )
 }

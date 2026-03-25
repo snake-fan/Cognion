@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 
-function HomeUploadPanel({ onSelectFile }) {
+function HomeUploadPanel({ onSelectFile, label = '点击上传 PDF 文件' }) {
   const inputRef = useRef(null)
 
   function onFileChange(event) {
@@ -35,7 +35,7 @@ function HomeUploadPanel({ onSelectFile }) {
         <span className="home-upload-plus" aria-hidden="true">
           +
         </span>
-        <span className="home-upload-text">点击上传 PDF 文件</span>
+        <span className="home-upload-text">{label}</span>
       </button>
       <input
         ref={inputRef}

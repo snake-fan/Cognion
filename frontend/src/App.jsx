@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Document, Page, pdfjs } from 'react-pdf'
-import ReactMarkdown from 'react-markdown'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import rehypeHighlight from 'rehype-highlight'
-import { askWithQuote, fetchPaperFile, fetchPaperMessages, fetchPapers, uploadPaper } from './services/api'
-import HomeLayout from './layout/HomeLayout'
-import LibraryLayout from './layout/LibraryLayout'
-import WorkspaceLayout from './layout/WorkspaceLayout'
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  askWithQuote,
+  createFolder,
+  deleteFolder,
+  deletePaper,
+  fetchFolderTree,
+  fetchPaperFile,
+  fetchPaperMessages,
+  fetchPapers,
+  moveFolder,
+  movePaper,
+  renameFolder,
+  uploadPaper
+} from './services/api'
 
 const PDF_PANEL_HORIZONTAL_PADDING = 28
 const PRIMARY_NAV_ITEMS = [
@@ -17,6 +20,11 @@ const PRIMARY_NAV_ITEMS = [
   { key: 'knowledge', label: '知识库（预留）', enabled: false },
   { key: 'workspace', label: '工作流（预留）', enabled: false }
 ]
+
+const HomeLayout = lazy(() => import('./layout/HomeLayout'))
+const LibraryLayout = lazy(() => import('./layout/LibraryLayout'))
+const WorkspaceLayout = lazy(() => import('./layout/WorkspaceLayout'))
+const ReaderWorkspace = lazy(() => import('./layout/ReaderWorkspace'))
 
 function App() {
   const [viewMode, setViewMode] = useState('home')
@@ -41,6 +49,13 @@ function App() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [libraryLoading, setLibraryLoading] = useState(false)
+  const [folders, setFolders] = useState([])
+  const [selectedFolderId, setSelectedFolderId] = useState(null)
+  const [folderCreateTarget, setFolderCreateTarget] = useState(null)
+  const [folderCreateName, setFolderCreateName] = useState('')
+  const [folderCreateLoading, setFolderCreateLoading] = useState(false)
+  const [deleteDialog, setDeleteDialog] = useState(null)
+  const [deleteDialogLoading, setDeleteDialogLoading] = useState(false)
   const composerRef = useRef(null)
   const messageListRef = useRef(null)
   const resizeLockRef = useRef(false)
@@ -49,17 +64,43 @@ function App() {
   const resizeRafRef = useRef(null)
 
   useEffect(() => {
-    async function loadPapers() {
+    async function loadInitialData() {
       try {
-        const papers = await fetchPapers()
+        const [papers, folderTree] = await Promise.all([fetchPapers(), fetchFolderTree()])
         setProjects(papers)
+        setFolders(folderTree)
       } catch {
         setProjects([])
+        setFolders([])
       }
     }
 
-    loadPapers()
+    loadInitialData()
   }, [])
+
+  async function refreshFolders() {
+    try {
+      const nextFolders = await fetchFolderTree()
+      setFolders(nextFolders)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  async function refreshPapers(folderId = selectedFolderId) {
+    try {
+      const nextPapers = await fetchPapers(folderId)
+      setProjects(nextPapers)
+    } catch (error) {
+      console.error(error)
+      setProjects([])
+    }
+  }
+
+  async function onSelectFolder(folderId) {
+    setSelectedFolderId(folderId)
+    await refreshPapers(folderId)
+  }
 
   function canUseCssHighlights() {
     return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof window.Highlight !== 'undefined'
@@ -219,7 +260,7 @@ function App() {
   async function onLibraryUpload(file) {
     setLibraryLoading(true)
     try {
-      const createdPaper = await uploadPaper(file)
+      const createdPaper = await uploadPaper(file, selectedFolderId)
       setProjects((prev) => [createdPaper, ...prev.filter((paper) => paper.id !== createdPaper.id)])
       setActiveProjectId(createdPaper.id)
       setMessages([])
@@ -243,6 +284,24 @@ function App() {
   }
 
   const primaryLevel = viewMode === 'workspace' ? 'library' : viewMode
+
+  function findFolderName(nodes, folderId) {
+    for (const node of nodes) {
+      if (node.id === folderId) {
+        return node.name
+      }
+      if (node.children?.length) {
+        const childHit = findFolderName(node.children, folderId)
+        if (childHit) {
+          return childHit
+        }
+      }
+    }
+    return null
+  }
+
+  const selectedFolderName = selectedFolderId === null ? '根目录' : findFolderName(folders, selectedFolderId)
+  const activeFolderIds = selectedFolderId === null ? [] : [selectedFolderId]
 
   const leftSidebar = (
     <aside className={`left-sidebar ${leftCollapsed ? 'collapsed' : ''}`}>
@@ -302,6 +361,185 @@ function App() {
       loadPdfToWorkspace(restoredFile)
     } catch (error) {
       console.error(error)
+    }
+  }
+
+  async function onFolderDrop(event, targetFolderId) {
+    event.preventDefault()
+    const dragType = event.dataTransfer.getData('cognion-drag-type')
+    const dragId = event.dataTransfer.getData('cognion-drag-id')
+    if (!dragType || !dragId) {
+      return
+    }
+
+    try {
+      if (dragType === 'paper') {
+        await movePaper(Number(dragId), targetFolderId)
+        await refreshPapers(selectedFolderId)
+      }
+
+      if (dragType === 'folder') {
+        await moveFolder(Number(dragId), targetFolderId)
+        await refreshFolders()
+        await refreshPapers(selectedFolderId)
+      }
+    } catch (error) {
+      console.error(error)
+      window.alert('拖拽移动失败')
+    }
+  }
+
+  function onProjectDragStart(event, projectId) {
+    event.dataTransfer.setData('cognion-drag-type', 'paper')
+    event.dataTransfer.setData('cognion-drag-id', String(projectId))
+  }
+
+  function onFolderDragStart(event, folderId) {
+    event.dataTransfer.setData('cognion-drag-type', 'folder')
+    event.dataTransfer.setData('cognion-drag-id', String(folderId))
+  }
+
+  async function onRootDrop(event) {
+    event.preventDefault()
+    const dragType = event.dataTransfer.getData('cognion-drag-type')
+    const dragId = event.dataTransfer.getData('cognion-drag-id')
+    if (!dragType || !dragId) {
+      return
+    }
+
+    try {
+      if (dragType === 'paper') {
+        await movePaper(Number(dragId), null)
+        await refreshPapers(selectedFolderId)
+      }
+      if (dragType === 'folder') {
+        await moveFolder(Number(dragId), null)
+        await refreshFolders()
+        await refreshPapers(selectedFolderId)
+      }
+    } catch (error) {
+      console.error(error)
+      window.alert('移动到根目录失败')
+    }
+  }
+
+  async function onCreateFolder(parentFolder) {
+    setFolderCreateTarget(parentFolder)
+    setFolderCreateName('')
+  }
+
+  function onCancelCreateFolder() {
+    if (folderCreateLoading) {
+      return
+    }
+    setFolderCreateTarget(null)
+    setFolderCreateName('')
+  }
+
+  async function onConfirmCreateFolder() {
+    const trimmedName = folderCreateName.trim()
+    if (!folderCreateTarget || !trimmedName || folderCreateLoading) {
+      return
+    }
+
+    try {
+      setFolderCreateLoading(true)
+      await createFolder(trimmedName, folderCreateTarget.id)
+      await refreshFolders()
+      setFolderCreateTarget(null)
+      setFolderCreateName('')
+    } catch (error) {
+      console.error(error)
+      window.alert('新建子文件夹失败')
+    } finally {
+      setFolderCreateLoading(false)
+    }
+  }
+
+  async function onDeleteFolder(folder) {
+    setDeleteDialog({
+      type: 'folder',
+      payload: folder,
+      title: `删除文件夹「${folder.name}」`,
+      message: '这会连带删除其子目录、其中论文及数据库记录，操作不可恢复。'
+    })
+  }
+
+  async function onRenameFolder(folderId, name) {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      return
+    }
+
+    try {
+      await renameFolder(folderId, trimmedName)
+      await refreshFolders()
+      await refreshPapers(selectedFolderId)
+    } catch (error) {
+      console.error(error)
+      window.alert('重命名失败')
+      throw error
+    }
+  }
+
+  async function onDeleteProject(project) {
+    const projectTitle = project.title || project.name || '未命名论文'
+    setDeleteDialog({
+      type: 'project',
+      payload: project,
+      title: `删除论文「${projectTitle}」`,
+      message: '将同时删除原文件、对话历史和数据库记录。'
+    })
+  }
+
+  function onCancelDeleteDialog() {
+    if (deleteDialogLoading) {
+      return
+    }
+    setDeleteDialog(null)
+  }
+
+  async function onConfirmDeleteDialog() {
+    if (!deleteDialog || deleteDialogLoading) {
+      return
+    }
+
+    try {
+      setDeleteDialogLoading(true)
+
+      if (deleteDialog.type === 'folder') {
+        const folder = deleteDialog.payload
+        await deleteFolder(folder.id)
+        if (selectedFolderId === folder.id || activeFolderIds.includes(folder.id)) {
+          setSelectedFolderId(null)
+          await refreshPapers(null)
+        } else {
+          await refreshPapers(selectedFolderId)
+        }
+        await refreshFolders()
+      }
+
+      if (deleteDialog.type === 'project') {
+        const project = deleteDialog.payload
+        await deletePaper(project.id)
+        await refreshPapers(selectedFolderId)
+        if (activeProjectId === project.id) {
+          setActiveProjectId(null)
+          setPdfFile(null)
+          if (pdfUrl) {
+            URL.revokeObjectURL(pdfUrl)
+          }
+          setPdfUrl(null)
+          setMessages([])
+        }
+      }
+
+      setDeleteDialog(null)
+    } catch (error) {
+      console.error(error)
+      window.alert('删除失败')
+    } finally {
+      setDeleteDialogLoading(false)
     }
   }
 
@@ -470,150 +708,92 @@ function App() {
   }, [expandedQuoteMessageIndex])
 
   if (viewMode === 'home') {
-    return <HomeLayout onEnterLibrary={() => setViewMode('library')} />
+    return (
+      <Suspense fallback={<div className="empty-state">加载中...</div>}>
+        <HomeLayout onEnterLibrary={() => setViewMode('library')} />
+      </Suspense>
+    )
   }
 
   if (viewMode === 'library') {
     return (
-      <WorkspaceLayout
-        isResizing={false}
-        showRightSidebar={false}
-        leftSidebar={leftSidebar}
-        centerContent={
-          <LibraryLayout
-            projects={projects}
-            onSelectFile={onLibraryUpload}
-            onOpenProject={onOpenProject}
-            loading={libraryLoading}
-          />
-        }
-      />
+      <Suspense fallback={<div className="empty-state">加载中...</div>}>
+        <WorkspaceLayout
+          isResizing={false}
+          showRightSidebar={false}
+          leftSidebar={leftSidebar}
+          centerContent={
+            <LibraryLayout
+              projects={projects}
+              onSelectFile={onLibraryUpload}
+              onOpenProject={onOpenProject}
+              loading={libraryLoading}
+              selectedFolderId={selectedFolderId}
+              selectedFolderName={selectedFolderName}
+              activeFolderIds={activeFolderIds}
+              folders={folders}
+              onSelectFolder={onSelectFolder}
+              onFolderDrop={onFolderDrop}
+              onFolderDragStart={onFolderDragStart}
+              onRootDrop={onRootDrop}
+              onProjectDragStart={onProjectDragStart}
+              onCreateFolder={onCreateFolder}
+              folderCreateTarget={folderCreateTarget}
+              folderCreateName={folderCreateName}
+              folderCreateLoading={folderCreateLoading}
+              onFolderCreateNameChange={setFolderCreateName}
+              onCancelCreateFolder={onCancelCreateFolder}
+              onConfirmCreateFolder={onConfirmCreateFolder}
+              onDeleteFolder={onDeleteFolder}
+              onRenameFolder={onRenameFolder}
+              onDeleteProject={onDeleteProject}
+              deleteDialog={deleteDialog}
+              deleteDialogLoading={deleteDialogLoading}
+              onCancelDeleteDialog={onCancelDeleteDialog}
+              onConfirmDeleteDialog={onConfirmDeleteDialog}
+            />
+          }
+        />
+      </Suspense>
     )
   }
 
   const activeProject = projects.find((project) => project.id === activeProjectId)
 
   return (
-    <WorkspaceLayout
-      isResizing={isResizing}
-      rightCollapsed={rightCollapsed}
-      onResizeHandleMouseDown={onResizeHandleMouseDown}
-      rightStyle={rightStyle}
-      rightSidebarRef={rightSidebarRef}
-      leftSidebar={leftSidebar}
-      centerContent={
-        <main className="center-panel">
-          <header className="center-header">
-            <div className="title">
-              {activeProject ? `Cognion · ${activeProject.title || activeProject.name}` : 'Cognion · 论文辅助阅读'}
-            </div>
-            <div className="center-actions">
-              <div className="zoom-controls">
-                <button className="zoom-button" onClick={zoomOut} title="缩小">
-                  -
-                </button>
-                <span className="zoom-value">{Math.round(zoom * 100)}%</span>
-                <button className="zoom-button" onClick={zoomIn} title="放大 (Ctrl/Cmd +)">
-                  +
-                </button>
-                <button className="zoom-fit-button" onClick={resetZoom} title="重置适配 (Ctrl/Cmd 0)">
-                  适配
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <section className="pdf-panel" onMouseUp={onTextSelection} ref={pdfPanelRef}>
-            {pdfUrl ? (
-              <Document file={pdfUrl} onLoadSuccess={({ numPages }) => setNumPages(numPages)}>
-                {Array.from(new Array(numPages), (_, index) => (
-                  <Page key={`page_${index + 1}`} pageNumber={index + 1} width={pageWidth} />
-                ))}
-              </Document>
-            ) : (
-              <div className="empty-state">该项目尚未载入 PDF，请从文献库上传后再进入阅读。</div>
-            )}
-          </section>
-        </main>
-      }
-      rightSidebar={
-        <>
-          <div className="sidebar-header">
-            <button className="logo-button sidebar-logo-button" onClick={() => setRightCollapsed((value) => !value)}>
-              Agent
-            </button>
-          </div>
-
-          {rightCollapsed ? null : (
-            <div className="chat-panel">
-              <div className="chat-messages" ref={messageListRef}>
-                {messages.length === 0 ? (
-                  <div className="chat-empty">从中间 PDF 选择内容，然后在下方直接提问。</div>
-                ) : (
-                  messages.map((message, index) => (
-                    <div key={`${message.role}-${index}`} className={`chat-message ${message.role}`}>
-                      {message.role === 'user' ? (
-                        <div className="user-message-stack">
-                          {message.quote ? (
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              className={`message-quote-bubble ${expandedQuoteMessageIndex === index ? 'expanded selected' : 'collapsed'}`}
-                              onClick={() => {
-                                if (expandedQuoteMessageIndex !== index) {
-                                  setExpandedQuoteMessageIndex(index)
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault()
-                                  setExpandedQuoteMessageIndex(index)
-                                }
-                              }}
-                              title={expandedQuoteMessageIndex === index ? '点击其他区域可折叠引用' : '点击展开引用'}
-                            >
-                              {message.quote}
-                            </div>
-                          ) : null}
-                          <div className="message-bubble">{message.content}</div>
-                        </div>
-                      ) : (
-                        <div className="message-content markdown-body">
-                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>
-                            {message.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-                {loading ? <div className="assistant-thinking">思考中...</div> : null}
-                <div className="chat-scroll-spacer" aria-hidden="true" />
-              </div>
-
-              {quote ? <div className="quote-chip">{quote}</div> : null}
-              <div className="composer-wrap">
-                <textarea
-                  ref={composerRef}
-                  className="composer-input"
-                  value={question}
-                  onChange={onComposerChange}
-                  onKeyDown={onComposerKeyDown}
-                  rows={1}
-                  placeholder="输入你的问题..."
-                />
-
-                <button className="send-button" disabled={loading || !question.trim()} onClick={onAsk} title="发送">
-                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                    <path d="M3 20L21 12L3 4V10L15 12L3 14V20Z" fill="currentColor" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      }
-    />
+    <Suspense fallback={<div className="empty-state">加载中...</div>}>
+      <ReaderWorkspace
+        isResizing={isResizing}
+        rightCollapsed={rightCollapsed}
+        onResizeHandleMouseDown={onResizeHandleMouseDown}
+        rightStyle={rightStyle}
+        rightSidebarRef={rightSidebarRef}
+        leftSidebar={leftSidebar}
+        activeProject={activeProject}
+        zoom={zoom}
+        onZoomOut={zoomOut}
+        onZoomIn={zoomIn}
+        onResetZoom={resetZoom}
+        pdfUrl={pdfUrl}
+        onPdfLoadSuccess={({ numPages: nextNumPages }) => setNumPages(nextNumPages)}
+        numPages={numPages}
+        pageWidth={pageWidth}
+        onTextSelection={onTextSelection}
+        pdfPanelRef={pdfPanelRef}
+        setRightCollapsed={setRightCollapsed}
+        messages={messages}
+        loading={loading}
+        expandedQuoteMessageIndex={expandedQuoteMessageIndex}
+        setExpandedQuoteMessageIndex={setExpandedQuoteMessageIndex}
+        quote={quote}
+        messageListRef={messageListRef}
+        composerRef={composerRef}
+        question={question}
+        onComposerChange={onComposerChange}
+        onComposerKeyDown={onComposerKeyDown}
+        onAsk={onAsk}
+      />
+    </Suspense>
   )
 }
 
