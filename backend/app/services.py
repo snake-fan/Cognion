@@ -1,4 +1,8 @@
 import os
+import json
+import re
+from pathlib import Path
+from uuid import uuid4
 from io import BytesIO
 
 from dotenv import load_dotenv
@@ -10,6 +14,7 @@ load_dotenv()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
+PDF_STORAGE_DIR = os.getenv("PDF_STORAGE_DIR", str(Path(__file__).resolve().parents[1] / "storage" / "papers"))
 
 
 
@@ -59,6 +64,88 @@ async def call_model(prompt: str) -> str:
         return completion.choices[0].message.content or ""
 
     return "模型未返回可解析内容。"
+
+
+def _extract_json_block(raw_text: str) -> str:
+    fenced_match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", raw_text)
+    if fenced_match:
+        return fenced_match.group(1)
+
+    brace_match = re.search(r"(\{[\s\S]*\})", raw_text)
+    if brace_match:
+        return brace_match.group(1)
+
+    return raw_text
+
+
+def _fallback_metadata(pdf_filename: str | None) -> dict[str, str]:
+    display_title = Path(pdf_filename or "未命名论文").stem
+    return {
+        "title": display_title or "未命名论文",
+        "authors": "未知",
+        "research_topic": "未标注",
+        "journal": "未知",
+        "publication_date": "未知",
+        "summary": "",
+    }
+
+
+async def extract_paper_metadata(pdf_bytes: bytes, pdf_filename: str | None) -> dict[str, str]:
+    pdf_context = extract_pdf_text(pdf_bytes, max_chars=14000)
+
+    if not OPENAI_API_KEY:
+        return _fallback_metadata(pdf_filename)
+
+    prompt = f"""
+请从下面论文内容中抽取结构化元信息，并且只返回 JSON 对象。
+
+JSON 字段必须包含：
+- title
+- authors
+- research_topic
+- journal
+- publication_date
+- summary
+
+要求：
+1. 不要返回 markdown，不要返回解释，只能返回 JSON。
+2. 如果无法确定字段，使用“未知”或“未标注”。
+3. `summary` 控制在 120 字以内。
+
+[论文文件名]
+{pdf_filename or '未知'}
+
+[论文上下文节选]
+{pdf_context or '无可用内容'}
+""".strip()
+
+    raw_response = await call_model(prompt)
+
+    try:
+        json_text = _extract_json_block(raw_response)
+        parsed = json.loads(json_text)
+        return {
+            "title": str(parsed.get("title") or "未命名论文"),
+            "authors": str(parsed.get("authors") or "未知"),
+            "research_topic": str(parsed.get("research_topic") or "未标注"),
+            "journal": str(parsed.get("journal") or "未知"),
+            "publication_date": str(parsed.get("publication_date") or "未知"),
+            "summary": str(parsed.get("summary") or ""),
+        }
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _fallback_metadata(pdf_filename)
+
+
+def persist_uploaded_pdf(pdf_bytes: bytes, original_filename: str | None) -> str:
+    storage_dir = Path(PDF_STORAGE_DIR)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(original_filename or "paper.pdf").name
+    extension = Path(safe_name).suffix.lower() or ".pdf"
+    stored_name = f"{uuid4().hex}{extension}"
+    target_path = storage_dir / stored_name
+    target_path.write_bytes(pdf_bytes)
+    return str(target_path.resolve())
 
 
 async def answer_with_context(

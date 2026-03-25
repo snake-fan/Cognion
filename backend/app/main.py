@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .database import init_database
 from .routes import router
 
 app = FastAPI(title="Cognion API", version="0.1.0")
@@ -17,6 +18,11 @@ app.add_middleware(
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    init_database()
 
 
 app.include_router(router, prefix="/api")

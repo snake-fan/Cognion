@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
-import { askWithQuote } from './services/api'
+import { askWithQuote, fetchPaperFile, fetchPaperMessages, fetchPapers, uploadPaper } from './services/api'
 import HomeLayout from './layout/HomeLayout'
 import LibraryLayout from './layout/LibraryLayout'
 import WorkspaceLayout from './layout/WorkspaceLayout'
@@ -12,29 +12,11 @@ import WorkspaceLayout from './layout/WorkspaceLayout'
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 const PDF_PANEL_HORIZONTAL_PADDING = 28
-const PROJECTS_STORAGE_KEY = 'cognion.projects'
 const PRIMARY_NAV_ITEMS = [
   { key: 'library', label: '文献库', enabled: true },
   { key: 'knowledge', label: '知识库（预留）', enabled: false },
   { key: 'workspace', label: '工作流（预留）', enabled: false }
 ]
-
-function createProject(file) {
-  const projectId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-  const now = new Date().toISOString()
-
-  return {
-    id: projectId,
-    name: file.name,
-    createdAt: now,
-    updatedAt: now,
-    messages: []
-  }
-}
 
 function App() {
   const [viewMode, setViewMode] = useState('home')
@@ -58,6 +40,7 @@ function App() {
   const [question, setQuestion] = useState('')
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
+  const [libraryLoading, setLibraryLoading] = useState(false)
   const composerRef = useRef(null)
   const messageListRef = useRef(null)
   const resizeLockRef = useRef(false)
@@ -66,43 +49,17 @@ function App() {
   const resizeRafRef = useRef(null)
 
   useEffect(() => {
-    const storedProjects = window.localStorage.getItem(PROJECTS_STORAGE_KEY)
-    if (!storedProjects) {
-      return
-    }
-
-    try {
-      const parsedProjects = JSON.parse(storedProjects)
-      if (!Array.isArray(parsedProjects)) {
-        return
+    async function loadPapers() {
+      try {
+        const papers = await fetchPapers()
+        setProjects(papers)
+      } catch {
+        setProjects([])
       }
-      setProjects(parsedProjects)
-    } catch {
-      setProjects([])
     }
+
+    loadPapers()
   }, [])
-
-  useEffect(() => {
-    window.localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects))
-  }, [projects])
-
-  useEffect(() => {
-    if (!activeProjectId) {
-      return
-    }
-
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === activeProjectId
-          ? {
-              ...project,
-              messages,
-              updatedAt: new Date().toISOString()
-            }
-          : project
-      )
-    )
-  }, [activeProjectId, messages])
 
   function canUseCssHighlights() {
     return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof window.Highlight !== 'undefined'
@@ -259,13 +216,20 @@ function App() {
     clearPersistentHighlight()
   }
 
-  function onLibraryUpload(file) {
-    const nextProject = createProject(file)
-    setProjects((prev) => [nextProject, ...prev])
-    setActiveProjectId(nextProject.id)
-    setMessages([])
-    setViewMode('workspace')
-    loadPdfToWorkspace(file)
+  async function onLibraryUpload(file) {
+    setLibraryLoading(true)
+    try {
+      const createdPaper = await uploadPaper(file)
+      setProjects((prev) => [createdPaper, ...prev.filter((paper) => paper.id !== createdPaper.id)])
+      setActiveProjectId(createdPaper.id)
+      setMessages([])
+      setViewMode('workspace')
+      loadPdfToWorkspace(file)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLibraryLoading(false)
+    }
   }
 
   function onPrimaryNavClick(itemKey, enabled) {
@@ -303,7 +267,7 @@ function App() {
     </aside>
   )
 
-  function onOpenProject(projectId) {
+  async function onOpenProject(projectId) {
     const selectedProject = projects.find((project) => project.id === projectId)
     if (!selectedProject) {
       return
@@ -315,7 +279,7 @@ function App() {
 
     setViewMode('workspace')
     setActiveProjectId(projectId)
-    setMessages(selectedProject.messages || [])
+    setMessages([])
     setPdfFile(null)
     setPdfUrl(null)
     setNumPages(0)
@@ -323,6 +287,22 @@ function App() {
     setQuote('')
     setExpandedQuoteMessageIndex(null)
     clearPersistentHighlight()
+
+    try {
+      const [pdfBlob, paperMessages] = await Promise.all([
+        fetchPaperFile(projectId),
+        fetchPaperMessages(projectId)
+      ])
+
+      setMessages(paperMessages)
+
+      const restoredFile = new File([pdfBlob], selectedProject.original_filename || 'paper.pdf', {
+        type: 'application/pdf'
+      })
+      loadPdfToWorkspace(restoredFile)
+    } catch (error) {
+      console.error(error)
+    }
   }
 
   function onTextSelection() {
@@ -367,7 +347,8 @@ function App() {
       const result = await askWithQuote({
         question: trimmedQuestion,
         quote,
-        pdfFile
+        pdfFile,
+        paperId: activeProjectId
       })
       setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }])
     } catch (error) {
@@ -499,7 +480,12 @@ function App() {
         showRightSidebar={false}
         leftSidebar={leftSidebar}
         centerContent={
-          <LibraryLayout projects={projects} onSelectFile={onLibraryUpload} onOpenProject={onOpenProject} />
+          <LibraryLayout
+            projects={projects}
+            onSelectFile={onLibraryUpload}
+            onOpenProject={onOpenProject}
+            loading={libraryLoading}
+          />
         }
       />
     )
@@ -518,7 +504,9 @@ function App() {
       centerContent={
         <main className="center-panel">
           <header className="center-header">
-            <div className="title">{activeProject ? `Cognion · ${activeProject.name}` : 'Cognion · 论文辅助阅读'}</div>
+            <div className="title">
+              {activeProject ? `Cognion · ${activeProject.title || activeProject.name}` : 'Cognion · 论文辅助阅读'}
+            </div>
             <div className="center-actions">
               <div className="zoom-controls">
                 <button className="zoom-button" onClick={zoomOut} title="缩小">
