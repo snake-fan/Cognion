@@ -1,20 +1,111 @@
 # Cognion
 
-Cognion is an AI-powered research reading system that goes beyond summarizing papers. Instead of treating documents as static content, Cognion models your evolving understanding—what you’ve grasped, where you’re confused, and how your knowledge grows over time. Cognion doesn’t just help you read papers—it helps you better thinking about them.
+Cognion 是一个面向论文阅读与问答的 AI 文献工作台。它把“上传 PDF → 目录组织 → 阅读标注 → 引用问答 → 历史沉淀”串成一条完整流程。
 
 ## 项目结构
 
 - `frontend/`: React + Vite 前端
-- `backend/`: FastAPI 后端
+- `backend/`: FastAPI + SQLAlchemy 后端
 
-## 当前已实现（MVP）
+## 当前功能（已实现）
 
-1. 前端渲染 PDF（上传本地 PDF 后中间区域显示）
-2. 鼠标选择 PDF 文本后，自动写入右侧对话栏“引用片段”
-3. 输入提问后调用后端 `/api/ask`，后端将“问题 + 引用 + PDF内容节选”组合为上下文，调用大模型
-4. IDE 风格布局：中间阅读区 + 左侧功能分类栏 + 右侧 AI 对话栏
-5. 右侧 AI 栏支持拖拽缩放
-6. 左右侧边栏均支持折叠
+### 前端
+
+- 首页 / 文献库 / 阅读工作区三段式页面流转
+- 文献库支持多层级文件夹树
+- 支持在根目录或子目录创建文件夹
+- 支持文件夹拖拽移动、删除、双击重命名
+- 文件夹图标支持“子树是否有论文”的状态展示
+- 论文卡片支持拖拽移动与悬浮删除
+- 删除操作改为应用内悬浮确认框（非系统弹窗）
+- 阅读区支持 PDF 渲染、缩放、文本选择高亮
+- 右侧 AI 对话区支持 Markdown / 数学公式 / 代码高亮渲染
+
+### 后端
+
+- 上传 PDF 后保存文件并入库论文元信息
+- 论文元信息持久化到 PostgreSQL（标题、作者、期刊、摘要等）
+- 论文与目录关系持久化（支持移动后同步文件路径）
+- 论文问答消息按 `paper_id` 持久化并可回放
+- 文件夹树接口返回层级结构与“是否含论文”聚合状态
+
+### 工程优化
+
+- 前端已按路由/组件拆包（首页、文献库、阅读区懒加载）
+- Vite 已按依赖做 `manualChunks` 分包
+
+## 环境要求
+
+- Node.js 18+
+- Python 3.10+
+- PostgreSQL 14+
+
+## PostgreSQL 下载与配置（Linux）
+
+以下步骤以 Ubuntu / Debian 为例：
+
+```bash
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+```
+
+设置数据库账号和库（示例）：
+
+```bash
+sudo -u postgres psql
+```
+
+在 `psql` 中执行：
+
+```sql
+ALTER USER postgres WITH PASSWORD 'your_database_password_here';
+CREATE DATABASE cognion_db;
+\q
+```
+
+本机连接测试：
+
+```bash
+psql -U postgres -h 127.0.0.1 -d cognion_db
+```
+
+> 如使用 macOS / Windows，请按官方安装器安装 PostgreSQL，并保持连接参数与 `.env` 一致。
+
+## .env 配置
+
+后端读取 `backend/.env`（可由 `backend/.env.example` 复制）。
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+推荐最小配置：
+
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_URL=https://api.openai.com/v1
+
+# 二选一：优先使用 DATABASE_URL
+# DATABASE_URL=postgresql+psycopg2://postgres:your_password@127.0.0.1:5432/cognion_db
+
+DATABASE_USER=postgres
+DATABASE_PASSWORD=your_database_password_here
+DATABASE_HOST=127.0.0.1
+DATABASE_PORT=5432
+DATABASE_NAME=cognion_db
+
+PDF_STORAGE_DIR=./storage/papers
+```
+
+说明：
+
+- 未配置 `OPENAI_API_KEY` 时，问答会返回占位响应（便于本地联调）
+- `DATABASE_URL` 与分项配置同时存在时，通常优先使用 `DATABASE_URL`
+- `PDF_STORAGE_DIR` 为 PDF 文件落盘根目录
 
 ## 启动方式
 
@@ -29,14 +120,7 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-如需真实大模型回答，请在 `backend/.env` 中配置：
-
-```env
-OPENAI_API_KEY=你的key
-OPENAI_MODEL=gpt-4.1-mini
-```
-
-未配置 key 时，后端会返回本地占位回复，便于先验证产品流程。
+后端地址：`http://127.0.0.1:8000`
 
 ### 2) 启动前端
 
@@ -46,10 +130,25 @@ npm install
 npm run dev
 ```
 
-浏览器访问：`http://127.0.0.1:5173`
+前端地址：`http://127.0.0.1:5173`
 
-## 后续扩展建议
+## 主要 API（当前）
 
-- 在左侧功能栏继续增加能力模块（如笔记整理、术语解释、知识图谱）
-- 将 `frontend/src/App.jsx` 逐步拆分为模块化组件
-- 在后端增加对话历史、RAG 检索与多模型路由
+- `POST /api/papers/upload` 上传论文
+- `GET /api/papers` 按目录查询论文
+- `GET /api/papers/{paper_id}/file` 下载论文文件
+- `PATCH /api/papers/{paper_id}/move` 移动论文目录
+- `DELETE /api/papers/{paper_id}` 删除论文
+- `GET /api/papers/{paper_id}/messages` 获取论文聊天历史
+- `GET /api/folders/tree` 获取目录树
+- `POST /api/folders` 创建文件夹
+- `PATCH /api/folders/{folder_id}/move` 移动文件夹
+- `PATCH /api/folders/{folder_id}/rename` 重命名文件夹
+- `DELETE /api/folders/{folder_id}` 删除文件夹
+- `POST /api/ask` 引用问答
+
+## 项目 TODO List
+
+> 该部分由你自行维护。
+
+- [ ] 
