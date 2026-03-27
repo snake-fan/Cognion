@@ -354,7 +354,7 @@ function App() {
     }
   }
 
-  const primaryLevel = viewMode === 'workspace' ? 'library' : viewMode
+  const primaryLevel = viewMode
 
   function findFolderName(nodes, folderId) {
     for (const node of nodes) {
