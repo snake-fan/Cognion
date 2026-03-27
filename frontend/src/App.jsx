@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import cognionLogo from './assets/cognion_logo_light.png'
 import {
   askWithQuote,
   createFolder,
@@ -20,6 +21,34 @@ const PRIMARY_NAV_ITEMS = [
   { key: 'knowledge', label: '知识库（预留）', enabled: false },
   { key: 'workspace', label: '工作流（预留）', enabled: false }
 ]
+
+const NAV_ICONS = {
+  library: (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H18a2 2 0 0 1 2 2v13.5a2.5 2.5 0 0 0-2.5-2.5H5.5A1.5 1.5 0 0 0 4 17.5z" />
+      <path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H18" />
+      <path d="M8 7h7" />
+      <path d="M8 10h7" />
+    </svg>
+  ),
+  knowledge: (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M7 14.5a5 5 0 0 1 10 0" />
+      <path d="M8 19h8" />
+      <path d="M10 22h4" />
+    </svg>
+  ),
+  workspace: (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="3" y="4" width="6" height="6" rx="1.2" />
+      <rect x="15" y="4" width="6" height="6" rx="1.2" />
+      <rect x="9" y="14" width="6" height="6" rx="1.2" />
+      <path d="M9 7h6" />
+      <path d="M12 10v4" />
+    </svg>
+  )
+}
 
 const HomeLayout = lazy(() => import('./layout/HomeLayout'))
 const LibraryLayout = lazy(() => import('./layout/LibraryLayout'))
@@ -307,22 +336,23 @@ function App() {
     <aside className={`left-sidebar ${leftCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <button className="logo-button" onClick={() => setLeftCollapsed((value) => !value)}>
-          <span>Cognion</span>
+          <img className="logo-image" src={cognionLogo} alt="Cognion" />
         </button>
       </div>
-      {!leftCollapsed && (
-        <div className="sidebar-content">
-          {PRIMARY_NAV_ITEMS.map((item) => (
-            <button
-              key={item.key}
-              className={`feature-item ${primaryLevel === item.key ? 'active' : ''} ${item.enabled ? '' : 'disabled'}`}
-              onClick={() => onPrimaryNavClick(item.key, item.enabled)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="sidebar-content">
+        {PRIMARY_NAV_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            className={`feature-item ${primaryLevel === item.key ? 'active' : ''} ${item.enabled ? '' : 'disabled'}`}
+            onClick={() => onPrimaryNavClick(item.key, item.enabled)}
+            title={item.label}
+            aria-label={item.label}
+          >
+            <span className="feature-item-icon">{NAV_ICONS[item.key]}</span>
+            {!leftCollapsed ? <span className="feature-item-label">{item.label}</span> : null}
+          </button>
+        ))}
+      </div>
     </aside>
   )
 
