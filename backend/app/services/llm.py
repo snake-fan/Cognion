@@ -1,40 +1,14 @@
-import os
 import json
-import re
-import shutil
+import logging
 from pathlib import Path
-from uuid import uuid4
-from io import BytesIO
 
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from pypdf import PdfReader
 
-load_dotenv()
+from .config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
+from .mineru import extract_pdf_context_for_qa
+from .pdf_storage import extract_pdf_text
 
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
-PDF_STORAGE_DIR = os.getenv("PDF_STORAGE_DIR", str(Path(__file__).resolve().parents[1] / "storage" / "papers"))
-
-
-
-def extract_pdf_text(pdf_bytes: bytes | None, max_chars: int = 12000) -> str:
-    if not pdf_bytes:
-        return ""
-
-    reader = PdfReader(BytesIO(pdf_bytes))
-    pages_text: list[str] = []
-
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        if text:
-            pages_text.append(text.strip())
-        if sum(len(chunk) for chunk in pages_text) >= max_chars:
-            break
-
-    all_text = "\n\n".join(pages_text)
-    return all_text[:max_chars]
+logger = logging.getLogger(__name__)
 
 
 async def call_model(prompt: str) -> str:
@@ -68,6 +42,8 @@ async def call_model(prompt: str) -> str:
 
 
 def _extract_json_block(raw_text: str) -> str:
+    import re
+
     fenced_match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", raw_text)
     if fenced_match:
         return fenced_match.group(1)
@@ -137,53 +113,18 @@ JSON 字段必须包含：
         return _fallback_metadata(pdf_filename)
 
 
-def _safe_segment(name: str) -> str:
-    sanitized = re.sub(r"[\\/:*?\"<>|]+", "_", name).strip()
-    return sanitized or "untitled"
-
-
-def persist_uploaded_pdf(
-    pdf_bytes: bytes,
-    original_filename: str | None,
-    folder_segments: list[str] | None = None,
-) -> str:
-    storage_dir = Path(PDF_STORAGE_DIR)
-    if folder_segments:
-        for segment in folder_segments:
-            storage_dir = storage_dir / _safe_segment(segment)
-    storage_dir.mkdir(parents=True, exist_ok=True)
-
-    safe_name = Path(original_filename or "paper.pdf").name
-    extension = Path(safe_name).suffix.lower() or ".pdf"
-    stored_name = f"{uuid4().hex}{extension}"
-    target_path = storage_dir / stored_name
-    target_path.write_bytes(pdf_bytes)
-    return str(target_path.resolve())
-
-
-def move_pdf_file_to_segments(existing_file_path: str, folder_segments: list[str] | None = None) -> str:
-    source_path = Path(existing_file_path)
-    if not source_path.exists():
-        return existing_file_path
-
-    target_dir = Path(PDF_STORAGE_DIR)
-    if folder_segments:
-        for segment in folder_segments:
-            target_dir = target_dir / _safe_segment(segment)
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / source_path.name
-    shutil.move(str(source_path), str(target_path))
-    return str(target_path.resolve())
-
-
 async def answer_with_context(
     question: str,
     quote: str,
     pdf_bytes: bytes | None,
     pdf_filename: str | None,
+    local_pdf_path: str | None = None,
 ) -> str:
-    pdf_context = extract_pdf_text(pdf_bytes)
+    pdf_context = await extract_pdf_context_for_qa(
+        pdf_bytes=pdf_bytes,
+        pdf_filename=pdf_filename,
+        local_pdf_path=local_pdf_path,
+    )
 
     prompt = f"""
 你是一个学术论文阅读助手，请基于用户问题、引用片段和论文上下文作答。

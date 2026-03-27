@@ -140,17 +140,22 @@ async def ask_about_quote(
     pdf_file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
+    paper: Paper | None = None
     if paper_id is not None:
         paper = db.query(Paper).filter(Paper.id == paper_id).first()
         if not paper:
             raise HTTPException(status_code=404, detail="Paper not found")
 
     pdf_bytes = await pdf_file.read() if pdf_file else None
+    effective_pdf_filename = pdf_file.filename if pdf_file else (paper.original_filename if paper else None)
+    effective_pdf_path = paper.file_path if paper else None
+
     response_text = await answer_with_context(
         question=question,
         quote=quote,
         pdf_bytes=pdf_bytes,
-        pdf_filename=pdf_file.filename if pdf_file else None,
+        pdf_filename=effective_pdf_filename,
+        local_pdf_path=effective_pdf_path,
     )
 
     if paper_id is not None:

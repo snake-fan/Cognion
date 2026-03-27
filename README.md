@@ -224,6 +224,23 @@ DATABASE_PORT=5432
 DATABASE_NAME=cognion_db
 
 PDF_STORAGE_DIR=./storage/papers
+
+MINERU_ENABLED=false
+MINERU_API_URL=
+MINERU_API_KEY=
+MINERU_MODEL=vlm
+MINERU_TIMEOUT_SECONDS=180
+MINERU_POLL_INTERVAL_SECONDS=3
+MINERU_MAX_CHARS=100000
+
+ALIYUN_OSS_ENABLED=false
+ALIYUN_OSS_ENDPOINT=
+ALIYUN_OSS_BUCKET=
+ALIYUN_OSS_ACCESS_KEY_ID=
+ALIYUN_OSS_ACCESS_KEY_SECRET=
+ALIYUN_OSS_KEY_PREFIX=cognion/mineru
+ALIYUN_OSS_PUBLIC_BASE_URL=
+ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 ```
 
 说明：
@@ -231,6 +248,9 @@ PDF_STORAGE_DIR=./storage/papers
 - 未配置 `OPENAI_API_KEY` 时，问答会返回占位响应（便于本地联调）
 - `DATABASE_URL` 与分项配置同时存在时，通常优先使用 `DATABASE_URL`
 - `PDF_STORAGE_DIR` 为 PDF 文件落盘根目录
+- 开启 `MINERU_ENABLED=true` 后，问答链路会走“上传 OSS → MinerU API 解析 PDF URL”
+- `ALIYUN_OSS_ENDPOINT` 必须填写地域 Endpoint（例如 `https://oss-cn-shanghai.aliyuncs.com/`），不要填写带 Bucket 的域名（例如 `https://cognion.oss-cn-shanghai.aliyuncs.com/`）
+- MinerU 返回的 Markdown 会缓存到与论文原件同路径、同名 `.md` 文件，后续优先读缓存避免重复解析
 
 ## 启动方式
 
