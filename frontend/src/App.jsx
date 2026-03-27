@@ -2,15 +2,19 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import cognionLogo from './assets/cognion_logo_light.png'
 import {
   askWithQuote,
+  createPaperSession,
   createFolder,
+  deletePaperSession,
   deleteFolder,
   deletePaper,
   fetchFolderTree,
   fetchPaperFile,
   fetchPaperMessages,
+  fetchPaperSessions,
   fetchPapers,
   moveFolder,
   movePaper,
+  renamePaperSession,
   renameFolder,
   uploadPaper
 } from './services/api'
@@ -76,6 +80,10 @@ function App() {
   const [expandedQuoteMessageIndex, setExpandedQuoteMessageIndex] = useState(null)
   const [question, setQuestion] = useState('')
   const [messages, setMessages] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [currentSessionId, setCurrentSessionId] = useState(null)
+  const [sessionPanelMode, setSessionPanelMode] = useState('chat')
+  const [sessionLoading, setSessionLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [libraryLoading, setLibraryLoading] = useState(false)
   const [folders, setFolders] = useState([])
@@ -286,6 +294,36 @@ function App() {
     clearPersistentHighlight()
   }
 
+  async function hydrateSessionsAndMessages(paperId, preferredSessionId = null) {
+    setSessionLoading(true)
+    try {
+      const nextSessions = await fetchPaperSessions(paperId)
+      setSessions(nextSessions)
+
+      const resolvedSessionId =
+        preferredSessionId && nextSessions.some((session) => session.id === preferredSessionId)
+          ? preferredSessionId
+          : (nextSessions[0]?.id ?? null)
+
+      setCurrentSessionId(resolvedSessionId)
+      setSessionPanelMode('chat')
+
+      if (resolvedSessionId !== null) {
+        const nextMessages = await fetchPaperMessages(paperId, resolvedSessionId)
+        setMessages(nextMessages)
+      } else {
+        setMessages([])
+      }
+    } catch (error) {
+      console.error(error)
+      setSessions([])
+      setCurrentSessionId(null)
+      setMessages([])
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
   async function onLibraryUpload(file) {
     setLibraryLoading(true)
     try {
@@ -293,8 +331,12 @@ function App() {
       setProjects((prev) => [createdPaper, ...prev.filter((paper) => paper.id !== createdPaper.id)])
       setActiveProjectId(createdPaper.id)
       setMessages([])
+      setSessions([])
+      setCurrentSessionId(null)
+      setSessionPanelMode('chat')
       setViewMode('workspace')
       loadPdfToWorkspace(file)
+      await hydrateSessionsAndMessages(createdPaper.id)
     } catch (error) {
       console.error(error)
     } finally {
@@ -369,6 +411,9 @@ function App() {
     setViewMode('workspace')
     setActiveProjectId(projectId)
     setMessages([])
+    setSessions([])
+    setCurrentSessionId(null)
+    setSessionPanelMode('chat')
     setPdfFile(null)
     setPdfUrl(null)
     setNumPages(0)
@@ -378,12 +423,8 @@ function App() {
     clearPersistentHighlight()
 
     try {
-      const [pdfBlob, paperMessages] = await Promise.all([
-        fetchPaperFile(projectId),
-        fetchPaperMessages(projectId)
-      ])
-
-      setMessages(paperMessages)
+      const pdfBlob = await fetchPaperFile(projectId)
+      await hydrateSessionsAndMessages(projectId)
 
       const restoredFile = new File([pdfBlob], selectedProject.original_filename || 'paper.pdf', {
         type: 'application/pdf'
@@ -561,6 +602,9 @@ function App() {
           }
           setPdfUrl(null)
           setMessages([])
+          setSessions([])
+          setCurrentSessionId(null)
+          setSessionPanelMode('chat')
         }
       }
 
@@ -595,7 +639,7 @@ function App() {
 
   async function onAsk() {
     const trimmedQuestion = question.trim()
-    if (!trimmedQuestion) {
+    if (!trimmedQuestion || !activeProjectId || !currentSessionId) {
       return
     }
 
@@ -605,7 +649,8 @@ function App() {
       {
         role: 'user',
         content: trimmedQuestion,
-        quote: attachedQuote
+        quote: attachedQuote,
+        session_id: currentSessionId
       }
     ])
     setQuestion('')
@@ -616,7 +661,8 @@ function App() {
         question: trimmedQuestion,
         quote,
         pdfFile,
-        paperId: activeProjectId
+        paperId: activeProjectId,
+        sessionId: currentSessionId
       })
       setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }])
     } catch (error) {
@@ -628,6 +674,119 @@ function App() {
 
   function onComposerChange(event) {
     setQuestion(event.target.value)
+  }
+
+  async function onSelectSession(sessionId) {
+    if (!activeProjectId) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const nextMessages = await fetchPaperMessages(activeProjectId, sessionId)
+      setCurrentSessionId(sessionId)
+      setMessages(nextMessages)
+      setExpandedQuoteMessageIndex(null)
+      setSessionPanelMode('chat')
+    } catch (error) {
+      console.error(error)
+      window.alert('切换 Session 失败')
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onCreateSession() {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const newSession = await createPaperSession(activeProjectId)
+      setSessions((prev) => [newSession, ...prev])
+      setCurrentSessionId(newSession.id)
+      setMessages([])
+      setExpandedQuoteMessageIndex(null)
+      setQuote('')
+      clearPersistentHighlight()
+      setSessionPanelMode('chat')
+    } catch (error) {
+      console.error(error)
+      window.alert(`新建 Session 失败：${error?.message || '未知错误'}`)
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onRenameSession(sessionId, nextName) {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    const trimmedName = nextName.trim()
+    if (!trimmedName) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const renamed = await renamePaperSession(activeProjectId, sessionId, trimmedName)
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                ...renamed
+              }
+            : session
+        )
+      )
+    } catch (error) {
+      console.error(error)
+      window.alert('重命名 Session 失败')
+      throw error
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onDeleteSession(sessionId) {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const result = await deletePaperSession(activeProjectId, sessionId)
+      const nextSessions = await fetchPaperSessions(activeProjectId)
+      setSessions(nextSessions)
+
+      const nextSessionId =
+        result.active_session_id && nextSessions.some((session) => session.id === result.active_session_id)
+          ? result.active_session_id
+          : (nextSessions[0]?.id ?? null)
+
+      setCurrentSessionId(nextSessionId)
+
+      if (nextSessionId !== null) {
+        const nextMessages = await fetchPaperMessages(activeProjectId, nextSessionId)
+        setMessages(nextMessages)
+      } else {
+        setMessages([])
+      }
+
+      setExpandedQuoteMessageIndex(null)
+      setQuote('')
+      clearPersistentHighlight()
+      setSessionPanelMode('list')
+    } catch (error) {
+      console.error(error)
+      window.alert('删除 Session 失败')
+      throw error
+    } finally {
+      setSessionLoading(false)
+    }
   }
 
   function onComposerKeyDown(event) {
@@ -647,7 +806,7 @@ function App() {
 
   const rightStyle = useMemo(() => {
     if (rightCollapsed) {
-      return { width: 92 }
+      return { width: 0, minWidth: 0, borderLeft: 'none', overflow: 'hidden' }
     }
     return { width: rightWidth }
   }, [rightCollapsed, rightWidth])
@@ -811,6 +970,15 @@ function App() {
         onTextSelection={onTextSelection}
         pdfPanelRef={pdfPanelRef}
         setRightCollapsed={setRightCollapsed}
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        sessionPanelMode={sessionPanelMode}
+        setSessionPanelMode={setSessionPanelMode}
+        onSelectSession={onSelectSession}
+        onCreateSession={onCreateSession}
+        onRenameSession={onRenameSession}
+        onDeleteSession={onDeleteSession}
+        sessionLoading={sessionLoading}
         messages={messages}
         loading={loading}
         expandedQuoteMessageIndex={expandedQuoteMessageIndex}

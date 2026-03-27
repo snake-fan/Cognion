@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import ChatMessage, Folder, Paper, PaperPlacement
+from .models import ChatMessage, ChatSession, Folder, Paper, PaperPlacement
 from .services import (
     answer_with_context,
     extract_paper_metadata,
@@ -33,15 +33,43 @@ def _paper_to_dict(paper: Paper) -> dict[str, str | int]:
     }
 
 
-def _message_to_dict(message: ChatMessage) -> dict[str, str | int]:
+def _message_to_dict(message: ChatMessage) -> dict[str, str | int | None]:
     return {
         "id": message.id,
         "paper_id": message.paper_id,
+        "session_id": message.session_id,
         "role": message.role,
         "content": message.content,
         "quote": message.quote,
         "created_at": message.created_at.isoformat() if isinstance(message.created_at, datetime) else "",
     }
+
+
+def _session_to_dict(chat_session: ChatSession) -> dict[str, str | int]:
+    return {
+        "id": chat_session.id,
+        "paper_id": chat_session.paper_id,
+        "name": chat_session.name,
+        "created_at": chat_session.created_at.isoformat() if isinstance(chat_session.created_at, datetime) else "",
+        "updated_at": chat_session.updated_at.isoformat() if isinstance(chat_session.updated_at, datetime) else "",
+    }
+
+
+def _ensure_default_session(db: Session, paper_id: int) -> ChatSession:
+    existing = (
+        db.query(ChatSession)
+        .filter(ChatSession.paper_id == paper_id)
+        .order_by(ChatSession.created_at.asc(), ChatSession.id.asc())
+        .first()
+    )
+    if existing:
+        return existing
+
+    default_session = ChatSession(paper_id=paper_id, name="Session 1")
+    db.add(default_session)
+    db.commit()
+    db.refresh(default_session)
+    return default_session
 
 
 def _folder_to_dict(folder: Folder) -> dict[str, str | int | None]:
@@ -137,14 +165,27 @@ async def ask_about_quote(
     question: str = Form(...),
     quote: str = Form(default=""),
     paper_id: int | None = Form(default=None),
+    session_id: int | None = Form(default=None),
     pdf_file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     paper: Paper | None = None
+    chat_session: ChatSession | None = None
     if paper_id is not None:
         paper = db.query(Paper).filter(Paper.id == paper_id).first()
         if not paper:
             raise HTTPException(status_code=404, detail="Paper not found")
+
+        if session_id is not None:
+            chat_session = (
+                db.query(ChatSession)
+                .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+                .first()
+            )
+            if not chat_session:
+                raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            chat_session = _ensure_default_session(db, paper_id)
 
     pdf_bytes = await pdf_file.read() if pdf_file else None
     effective_pdf_filename = pdf_file.filename if pdf_file else (paper.original_filename if paper else None)
@@ -161,12 +202,14 @@ async def ask_about_quote(
     if paper_id is not None:
         user_message = ChatMessage(
             paper_id=paper_id,
+            session_id=chat_session.id if chat_session else None,
             role="user",
             content=question,
             quote=quote or "",
         )
         assistant_message = ChatMessage(
             paper_id=paper_id,
+            session_id=chat_session.id if chat_session else None,
             role="assistant",
             content=response_text,
             quote="",
@@ -174,6 +217,8 @@ async def ask_about_quote(
 
         db.add(user_message)
         db.add(assistant_message)
+        if chat_session is not None:
+            db.query(ChatSession).filter(ChatSession.id == chat_session.id).update({"updated_at": datetime.utcnow()})
         db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
         db.commit()
 
@@ -216,6 +261,8 @@ async def upload_paper(
     db.add(paper)
     db.commit()
     db.refresh(paper)
+
+    _ensure_default_session(db, paper.id)
 
     placement = PaperPlacement(paper_id=paper.id, folder_id=folder_id)
     db.add(placement)
@@ -425,16 +472,138 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, in
 
 
 @router.get("/papers/{paper_id}/messages")
-def list_paper_messages(paper_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, str | int]]]:
+def list_paper_messages(
+    paper_id: int,
+    session_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, str | int | None]]]:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
+    effective_session = None
+    if session_id is not None:
+        effective_session = (
+            db.query(ChatSession)
+            .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+            .first()
+        )
+        if not effective_session:
+            raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        effective_session = _ensure_default_session(db, paper_id)
+
     messages = (
         db.query(ChatMessage)
-        .filter(ChatMessage.paper_id == paper_id)
+        .filter(ChatMessage.paper_id == paper_id, ChatMessage.session_id == effective_session.id)
         .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
         .all()
     )
 
     return {"messages": [_message_to_dict(message) for message in messages]}
+
+
+@router.get("/papers/{paper_id}/sessions")
+def list_paper_sessions(paper_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, str | int]]]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    _ensure_default_session(db, paper_id)
+
+    sessions = (
+        db.query(ChatSession)
+        .filter(ChatSession.paper_id == paper_id)
+        .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .all()
+    )
+    return {"sessions": [_session_to_dict(session) for session in sessions]}
+
+
+@router.post("/papers/{paper_id}/sessions")
+def create_paper_session(
+    paper_id: int,
+    name: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int]]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    existing_count = db.query(ChatSession).filter(ChatSession.paper_id == paper_id).count()
+    resolved_name = (name or "").strip() or f"Session {existing_count + 1}"
+
+    new_session = ChatSession(paper_id=paper_id, name=resolved_name)
+    db.add(new_session)
+    db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
+    db.commit()
+    db.refresh(new_session)
+    return {"session": _session_to_dict(new_session)}
+
+
+@router.patch("/papers/{paper_id}/sessions/{session_id}")
+def rename_paper_session(
+    paper_id: int,
+    session_id: int,
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    chat_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+        .first()
+    )
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    next_name = name.strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="Session name is required")
+
+    chat_session.name = next_name
+    chat_session.updated_at = datetime.utcnow()
+    db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
+    db.commit()
+    db.refresh(chat_session)
+    return {"session": _session_to_dict(chat_session)}
+
+
+@router.delete("/papers/{paper_id}/sessions/{session_id}")
+def delete_paper_session(
+    paper_id: int,
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    chat_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+        .first()
+    )
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete(synchronize_session=False)
+    db.query(ChatSession).filter(ChatSession.id == session_id).delete(synchronize_session=False)
+    db.commit()
+
+    remaining = (
+        db.query(ChatSession)
+        .filter(ChatSession.paper_id == paper_id)
+        .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .first()
+    )
+    if not remaining:
+        remaining = _ensure_default_session(db, paper_id)
+
+    db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
+    db.commit()
+
+    return {"deleted_session_id": session_id, "active_session_id": remaining.id}

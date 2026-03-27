@@ -659,6 +659,58 @@ textarea {
   gap: 10px;
 }
 
+.right-sidebar-toggle {
+  border: 1px solid #555;
+  background: #2d2d2d;
+  color: #ddd;
+  border-radius: 4px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.right-sidebar-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.right-sidebar-title {
+  color: #d4d4d4;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.session-header-button {
+  border: 1px solid #555;
+  background: #2d2d2d;
+  color: #ddd;
+  border-radius: 4px;
+  height: 28px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.right-sidebar-nav {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.session-header-button.active {
+  border-color: #0e639c;
+  background: #17384d;
+  color: #fff;
+}
+
 .zoom-controls {
   display: flex;
   align-items: center;
@@ -754,6 +806,214 @@ textarea {
   padding: 24px;
   overflow: hidden;
   height: calc(100% - 44px);
+}
+
+.session-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  overflow: visible;
+  height: calc(100% - 44px);
+}
+
+.session-empty-panel {
+  height: calc(100% - 44px);
+}
+
+.session-create-button,
+.session-back-button {
+  border: 1px solid #444;
+  background: #2d2d2d;
+  color: #ddd;
+  border-radius: 6px;
+  height: 34px;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+.session-back-button {
+  background: #252525;
+}
+
+.session-create-button:disabled,
+.session-back-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.session-list-scroll {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  position: relative;
+  z-index: 2;
+}
+
+.session-item {
+  border: 1px solid #3e3e3e;
+  background: #292929;
+  color: #d4d4d4;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.session-item.active {
+  border-color: #0e639c;
+  background: #17384d;
+  color: #fff;
+}
+
+.session-item-name {
+  font-size: 13px;
+  text-align: left;
+}
+
+.session-item-main {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.session-item-meta {
+  font-size: 12px;
+  color: #9a9a9a;
+  text-align: left;
+}
+
+.session-item.active .session-item-meta {
+  color: #cde4f5;
+}
+
+.session-name-input {
+  width: 100%;
+  border: 1px solid #0e639c;
+  background: #1e2833;
+  color: #dceeff;
+  border-radius: 6px;
+  height: 30px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.session-delete-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #4a4a4a;
+  background: #242424;
+  color: #d2d2d2;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  flex: 0 0 28px;
+}
+
+.session-delete-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.session-delete-icon:hover {
+  border-color: #744444;
+  background: #4f2f2f;
+  color: #ffdede;
+}
+
+.session-delete-icon:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #111;
+  color: #ddd;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.session-delete-icon:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.session-delete-wrap {
+  flex: 0 0 28px;
+}
+
+.session-delete-popover {
+  background: #151515;
+  border: 1px solid #3d3d3d;
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 140px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.session-delete-popover.fixed {
+  position: fixed;
+  transform: translate(-100%, -50%);
+  z-index: 10000;
+}
+
+.session-delete-text {
+  font-size: 12px;
+  color: #dddddd;
+  margin-bottom: 8px;
+}
+
+.session-delete-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.session-delete-btn {
+  flex: 1;
+  border: 1px solid #4a4a4a;
+  background: #2a2a2a;
+  color: #d2d2d2;
+  border-radius: 6px;
+  height: 28px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-delete-btn.danger {
+  border-color: #744444;
+  background: #4f2f2f;
+  color: #ffdede;
+}
+
+.session-delete-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .chat-messages {
@@ -1166,17 +1426,94 @@ body.light-theme .center-panel {
 }
 
 body.light-theme .zoom-button,
-body.light-theme .zoom-fit-button {
+body.light-theme .zoom-fit-button,
+body.light-theme .session-header-button,
+body.light-theme .right-sidebar-toggle {
   background: #f0f0f0;
   border-color: #d4d4d4;
   color: var(--text-main);
 }
 body.light-theme .zoom-button:hover,
-body.light-theme .zoom-fit-button:hover {
+body.light-theme .zoom-fit-button:hover,
+body.light-theme .session-header-button:hover,
+body.light-theme .right-sidebar-toggle:hover {
   background: var(--bg-hover);
 }
 body.light-theme .zoom-value {
   color: var(--text-main);
+}
+
+body.light-theme .right-sidebar-title {
+  color: var(--text-main);
+}
+
+body.light-theme .session-header-button.active {
+  background: var(--bg-active);
+  border-color: var(--brand-color);
+  color: var(--brand-color);
+}
+
+body.light-theme .session-create-button,
+body.light-theme .session-back-button,
+body.light-theme .session-item {
+  background: #f4f4f4;
+  border-color: #d4d4d4;
+  color: var(--text-main);
+}
+
+body.light-theme .session-item.active {
+  background: var(--bg-active);
+  border-color: var(--brand-color);
+  color: var(--brand-color);
+}
+
+body.light-theme .session-item-meta {
+  color: var(--text-muted);
+}
+
+body.light-theme .session-name-input {
+  background: #ffffff;
+  border-color: var(--brand-color);
+  color: var(--text-main);
+}
+
+body.light-theme .session-delete-icon {
+  background: #f0f0f0;
+  border-color: #d4d4d4;
+  color: var(--text-main);
+}
+
+body.light-theme .session-delete-icon:hover {
+  background: #ffecec;
+  border-color: #e1b6b6;
+  color: #9a2f2f;
+}
+
+body.light-theme .session-delete-icon:hover::after {
+  background: #ffffff;
+  border-color: #d4d4d4;
+  color: var(--text-main);
+}
+
+body.light-theme .session-delete-popover {
+  background: #ffffff;
+  border-color: #d4d4d4;
+}
+
+body.light-theme .session-delete-text {
+  color: var(--text-main);
+}
+
+body.light-theme .session-delete-btn {
+  background: #f0f0f0;
+  border-color: #d4d4d4;
+  color: var(--text-main);
+}
+
+body.light-theme .session-delete-btn.danger {
+  background: #ffecec;
+  border-color: #e1b6b6;
+  color: #9a2f2f;
 }
 
 body.light-theme .chat-messages::-webkit-scrollbar-thumb {
