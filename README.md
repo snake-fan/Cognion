@@ -252,6 +252,68 @@ ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 - `ALIYUN_OSS_ENDPOINT` 必须填写地域 Endpoint（例如 `https://oss-cn-shanghai.aliyuncs.com/`），不要填写带 Bucket 的域名（例如 `https://cognion.oss-cn-shanghai.aliyuncs.com/`）
 - MinerU 返回的 Markdown 会缓存到与论文原件同路径、同名 `.md` 文件，后续优先读缓存避免重复解析
 
+## OSS + MinerU 简单配置教程
+
+下面这套是最小可用流程，按顺序做即可。
+
+### 1) 准备账号与密钥
+
+- 阿里云 OSS：准备 Bucket、`AccessKeyId`、`AccessKeySecret`
+- MinerU：在官网 API 管理页生成 Token（填到 `MINERU_API_KEY`）
+
+### 2) 确认 OSS 基本信息
+
+- `ALIYUN_OSS_BUCKET`：你的 Bucket 名称（例如 `cognion`）
+- `ALIYUN_OSS_ENDPOINT`：地域 Endpoint（例如 `https://oss-cn-shanghai.aliyuncs.com/`）
+
+注意：
+
+- `ALIYUN_OSS_ENDPOINT` 不要写成 `https://<bucket>.oss-xxx.aliyuncs.com/`
+- Bucket 域名如果要用于对外访问，放在 `ALIYUN_OSS_PUBLIC_BASE_URL`
+
+### 3) 在 `backend/.env` 填写配置
+
+```env
+MINERU_ENABLED=true
+MINERU_API_URL=https://mineru.net/api/v4/extract/task
+MINERU_API_KEY=your_mineru_token
+MINERU_MODEL=vlm
+MINERU_TIMEOUT_SECONDS=180
+MINERU_POLL_INTERVAL_SECONDS=3
+MINERU_MAX_CHARS=100000
+
+ALIYUN_OSS_ENABLED=true
+ALIYUN_OSS_ENDPOINT=https://oss-cn-shanghai.aliyuncs.com/
+ALIYUN_OSS_BUCKET=your_bucket
+ALIYUN_OSS_ACCESS_KEY_ID=your_access_key_id
+ALIYUN_OSS_ACCESS_KEY_SECRET=your_access_key_secret
+ALIYUN_OSS_KEY_PREFIX=cognion/mineru
+ALIYUN_OSS_PUBLIC_BASE_URL=https://your_bucket.oss-cn-shanghai.aliyuncs.com/
+ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
+```
+
+### 4) 启动后端并做一次链路验证
+
+```bash
+cd backend
+source .venv/bin/activate
+python test/test_oss_mineru.py
+```
+
+如果成功，日志会看到：
+
+- `[OK] OSS upload succeeded.`
+- `[OK] MinerU API succeeded.`
+
+### 5) 常见问题快速排查
+
+- 报 `SSL: CERTIFICATE_VERIFY_FAILED` 且主机像 `bucket.bucket.oss-...`：
+  `ALIYUN_OSS_ENDPOINT` 配错成了带 bucket 的域名，改为地域 Endpoint。
+- MinerU 一直超时：
+  先增大 `MINERU_TIMEOUT_SECONDS`（例如 300），确认目标 PDF 可公网访问。
+- 返回文本很短或为空：
+  检查 `MINERU_MODEL`（建议 `vlm`）、以及 MinerU 任务状态是否 `done`。
+
 ## 启动方式
 
 ### 1) 启动后端
