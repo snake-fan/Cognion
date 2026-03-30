@@ -2,11 +2,13 @@ import { Suspense, lazy, useState } from 'react'
 import cognionLogo from './assets/cognion_logo_light.png'
 import SidebarNav from './components/SidebarNav'
 import useLibraryData from './hooks/useLibraryData'
+import useNotesData from './hooks/useNotesData'
 import useReaderWorkspace from './hooks/useReaderWorkspace'
 import { uploadPaper } from './services/api'
 
 const PRIMARY_NAV_ITEMS = [
   { key: 'library', label: '文献库', enabled: true },
+  { key: 'notes', label: '笔记', enabled: true },
   { key: 'knowledge', label: '知识库（预留）', enabled: false },
   { key: 'workspace', label: '工作流（预留）', enabled: false }
 ]
@@ -18,6 +20,15 @@ const NAV_ICONS = {
       <path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H18" />
       <path d="M8 7h7" />
       <path d="M8 10h7" />
+    </svg>
+  ),
+  notes: (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6 3.5h9l3 3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 20V5A1.5 1.5 0 0 1 6.5 3.5z" />
+      <path d="M15 3.5V7h3" />
+      <path d="M8 10h8" />
+      <path d="M8 13h8" />
+      <path d="M8 16h5" />
     </svg>
   ),
   knowledge: (
@@ -41,6 +52,7 @@ const NAV_ICONS = {
 
 const HomeLayout = lazy(() => import('./layout/HomeLayout'))
 const LibraryLayout = lazy(() => import('./layout/LibraryLayout'))
+const NotesLayout = lazy(() => import('./layout/NotesLayout'))
 const WorkspaceLayout = lazy(() => import('./layout/WorkspaceLayout'))
 const ReaderWorkspace = lazy(() => import('./layout/ReaderWorkspace'))
 
@@ -100,6 +112,7 @@ function App() {
     libraryLoading,
     setLibraryLoading,
     folders,
+    refreshFolders,
     selectedFolderId,
     selectedFolderName,
     activeFolderIds,
@@ -127,11 +140,49 @@ function App() {
     onActiveProjectDeleted
   })
 
+  const {
+    loading: notesLoading,
+    folders: noteFolders,
+    notes,
+    papers: notePapers,
+    sessions: noteSessions,
+    selectedFolderName: selectedNoteFolderName,
+    selectedNote,
+    activeFolderIds: activeNoteFolderIds,
+    folderCreateTarget: noteFolderCreateTarget,
+    folderCreateName: noteFolderCreateName,
+    folderCreateLoading: noteFolderCreateLoading,
+    deleteDialog: noteDeleteDialog,
+    deleteDialogLoading: noteDeleteDialogLoading,
+    setFolderCreateName: setNoteFolderCreateName,
+    onSelectFolder: onSelectNoteFolder,
+    onSelectNote,
+    onCreateNote,
+    onSaveNote,
+    onRenameNote,
+    onDeleteNote,
+    onFolderDrop: onNoteFolderDrop,
+    onFolderDragStart: onNoteFolderDragStart,
+    onRootDrop: onNoteRootDrop,
+    onNoteDragStart,
+    onCreateFolder: onCreateNoteFolder,
+    onCancelCreateFolder: onCancelCreateNoteFolder,
+    onConfirmCreateFolder: onConfirmCreateNoteFolder,
+    onDeleteFolder: onDeleteNoteFolder,
+    onRenameFolder: onRenameNoteFolder,
+    onCancelDeleteDialog: onCancelNoteDeleteDialog,
+    onConfirmDeleteDialog: onConfirmNoteDeleteDialog
+  } = useNotesData({
+    activePaperId: activeProjectId,
+    activeSessionId: currentSessionId
+  })
+
   async function onLibraryUpload(file) {
     setLibraryLoading(true)
     try {
       const createdPaper = await uploadPaper(file, selectedFolderId)
       setProjects((prev) => [createdPaper, ...prev.filter((paper) => paper.id !== createdPaper.id)])
+      await refreshFolders()
       setViewMode('workspace')
       await openUploadedPaper(file, createdPaper.id)
     } catch (error) {
@@ -148,6 +199,10 @@ function App() {
 
     if (itemKey === 'library') {
       setViewMode('library')
+    }
+
+    if (itemKey === 'notes') {
+      setViewMode('notes')
     }
   }
 
@@ -224,6 +279,53 @@ function App() {
               deleteDialogLoading={deleteDialogLoading}
               onCancelDeleteDialog={onCancelDeleteDialog}
               onConfirmDeleteDialog={onConfirmDeleteDialog}
+            />
+          }
+        />
+      </Suspense>
+    )
+  }
+
+  if (viewMode === 'notes') {
+    return (
+      <Suspense fallback={<div className="empty-state">加载中...</div>}>
+        <WorkspaceLayout
+          isResizing={false}
+          showRightSidebar={false}
+          leftSidebar={leftSidebar}
+          centerContent={
+            <NotesLayout
+              loading={notesLoading}
+              folders={noteFolders}
+              notes={notes}
+              papers={notePapers}
+              sessions={noteSessions}
+              selectedFolderName={selectedNoteFolderName}
+              selectedNote={selectedNote}
+              activeFolderIds={activeNoteFolderIds}
+              onSelectFolder={onSelectNoteFolder}
+              onFolderDrop={onNoteFolderDrop}
+              onFolderDragStart={onNoteFolderDragStart}
+              onRootDrop={onNoteRootDrop}
+              onCreateFolder={onCreateNoteFolder}
+              onDeleteFolder={onDeleteNoteFolder}
+              onRenameFolder={onRenameNoteFolder}
+              onCreateNote={onCreateNote}
+              onSelectNote={onSelectNote}
+              onSaveNote={onSaveNote}
+              onRenameNote={onRenameNote}
+              onDeleteNote={onDeleteNote}
+              onNoteDragStart={onNoteDragStart}
+              folderCreateTarget={noteFolderCreateTarget}
+              folderCreateName={noteFolderCreateName}
+              folderCreateLoading={noteFolderCreateLoading}
+              onFolderCreateNameChange={setNoteFolderCreateName}
+              onCancelCreateFolder={onCancelCreateNoteFolder}
+              onConfirmCreateFolder={onConfirmCreateNoteFolder}
+              deleteDialog={noteDeleteDialog}
+              deleteDialogLoading={noteDeleteDialogLoading}
+              onCancelDeleteDialog={onCancelNoteDeleteDialog}
+              onConfirmDeleteDialog={onConfirmNoteDeleteDialog}
             />
           }
         />

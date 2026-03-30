@@ -41,7 +41,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_database() -> None:
-    from .models import ChatMessage, ChatSession, Folder, Paper, PaperPlacement
+    from .models import ChatMessage, ChatSession, Folder, Note, NoteFolder, Paper, PaperPlacement
 
     Base.metadata.create_all(
         bind=engine,
@@ -51,6 +51,8 @@ def init_database() -> None:
             ChatSession.__table__,
             Folder.__table__,
             PaperPlacement.__table__,
+            NoteFolder.__table__,
+            Note.__table__,
         ],
     )
 

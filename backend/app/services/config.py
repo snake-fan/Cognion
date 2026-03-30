@@ -10,6 +10,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
 
 PDF_STORAGE_DIR = os.getenv("PDF_STORAGE_DIR", str(Path(__file__).resolve().parents[2] / "storage" / "papers"))
+NOTE_STORAGE_DIR = os.getenv("NOTE_STORAGE_DIR", str(Path(__file__).resolve().parents[2] / "storage" / "notes"))
 
 MINERU_ENABLED = os.getenv("MINERU_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 MINERU_API_URL = os.getenv("MINERU_API_URL", "")

@@ -311,6 +311,10 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
         content: trimmedQuestion,
         quote: attachedQuote,
         session_id: currentSessionId
+      },
+      {
+        role: 'assistant',
+        content: ''
       }
     ])
     setQuestion('')
@@ -322,11 +326,46 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
         quote,
         pdfFile,
         paperId: activeProjectId,
-        sessionId: currentSessionId
+        sessionId: currentSessionId,
+        onChunk: (fullText) => {
+          setMessages((prev) => {
+            if (prev.length === 0) {
+              return prev
+            }
+            const next = [...prev]
+            const lastIndex = next.length - 1
+            if (next[lastIndex].role === 'assistant') {
+              next[lastIndex] = { ...next[lastIndex], content: fullText }
+              return next
+            }
+            return [...next, { role: 'assistant', content: fullText }]
+          })
+        }
       })
-      setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }])
+      if (typeof result?.answer === 'string') {
+        setMessages((prev) => {
+          if (prev.length === 0) {
+            return prev
+          }
+          const next = [...prev]
+          const lastIndex = next.length - 1
+          if (next[lastIndex].role === 'assistant') {
+            next[lastIndex] = { ...next[lastIndex], content: result.answer }
+            return next
+          }
+          return [...next, { role: 'assistant', content: result.answer }]
+        })
+      }
     } catch (error) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: `请求失败：${error.message}` }])
+      setMessages((prev) => {
+        const next = [...prev]
+        const fallbackMessage = { role: 'assistant', content: `请求失败：${error.message}` }
+        if (next.length && next[next.length - 1].role === 'assistant') {
+          next[next.length - 1] = fallbackMessage
+          return next
+        }
+        return [...next, fallbackMessage]
+      })
     } finally {
       setLoading(false)
     }

@@ -1,17 +1,23 @@
 from datetime import datetime
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import ChatMessage, ChatSession, Folder, Paper, PaperPlacement
+from .models import ChatMessage, ChatSession, Folder, Note, NoteFolder, Paper, PaperPlacement
 from .services import (
     answer_with_context,
+    answer_with_context_stream,
     extract_paper_metadata,
+    move_note_file_to_segments,
     move_pdf_file_to_segments,
+    overwrite_note_markdown,
     persist_uploaded_pdf,
+    persist_note_markdown,
+    rename_note_markdown_file,
 )
 
 router = APIRouter()
@@ -160,15 +166,115 @@ def _folder_segments(db: Session, folder_id: int | None) -> list[str]:
     return segments
 
 
-@router.post("/ask")
+def _note_to_dict(note: Note) -> dict[str, str | int | None]:
+    return {
+        "id": note.id,
+        "title": note.title,
+        "content": note.content,
+        "paper_id": note.paper_id,
+        "session_id": note.session_id,
+        "folder_id": note.folder_id,
+        "file_path": note.file_path,
+        "created_at": note.created_at.isoformat() if isinstance(note.created_at, datetime) else "",
+        "updated_at": note.updated_at.isoformat() if isinstance(note.updated_at, datetime) else "",
+    }
+
+
+def _note_folder_to_dict(folder: NoteFolder) -> dict[str, str | int | None]:
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "parent_id": folder.parent_id,
+        "created_at": folder.created_at.isoformat() if isinstance(folder.created_at, datetime) else "",
+        "updated_at": folder.updated_at.isoformat() if isinstance(folder.updated_at, datetime) else "",
+    }
+
+
+def _build_note_folder_tree(folders: list[NoteFolder], folder_ids_with_notes: set[int] | None = None) -> list[dict[str, object]]:
+    occupied_folder_ids = folder_ids_with_notes or set()
+    node_map: dict[int, dict[str, object]] = {}
+    roots: list[dict[str, object]] = []
+
+    for folder in folders:
+        node_map[folder.id] = {
+            "id": folder.id,
+            "name": folder.name,
+            "parent_id": folder.parent_id,
+            "children": [],
+            "has_notes": folder.id in occupied_folder_ids,
+        }
+
+    for folder in folders:
+        node = node_map[folder.id]
+        parent_id = folder.parent_id
+        if parent_id and parent_id in node_map:
+            parent_node = node_map[parent_id]
+            parent_children = parent_node["children"]
+            if isinstance(parent_children, list):
+                parent_children.append(node)
+        else:
+            roots.append(node)
+
+    def mark_has_notes(node: dict[str, object]) -> bool:
+        has_notes = bool(node.get("has_notes"))
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict) and mark_has_notes(child):
+                    has_notes = True
+        node["has_notes"] = has_notes
+        return has_notes
+
+    for root in roots:
+        mark_has_notes(root)
+
+    return roots
+
+
+def _collect_descendant_note_folder_ids(folder_id: int, folders: list[NoteFolder]) -> set[int]:
+    children_map: dict[int | None, list[int]] = {}
+    for folder in folders:
+        children_map.setdefault(folder.parent_id, []).append(folder.id)
+
+    result: set[int] = set()
+    stack = [folder_id]
+    while stack:
+        current = stack.pop()
+        if current in result:
+            continue
+        result.add(current)
+        stack.extend(children_map.get(current, []))
+
+    return result
+
+
+def _note_folder_segments(db: Session, folder_id: int | None) -> list[str]:
+    if folder_id is None:
+        return []
+
+    segments: list[str] = []
+    current_id = folder_id
+    while current_id is not None:
+        folder = db.query(NoteFolder).filter(NoteFolder.id == current_id).first()
+        if not folder:
+            break
+        segments.append(folder.name)
+        current_id = folder.parent_id
+
+    segments.reverse()
+    return segments
+
+
+@router.post("/ask", response_model=None)
 async def ask_about_quote(
     question: str = Form(...),
     quote: str = Form(default=""),
     paper_id: int | None = Form(default=None),
     session_id: int | None = Form(default=None),
+    stream: bool = Form(default=False),
     pdf_file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
-) -> dict[str, str]:
+):
     paper: Paper | None = None
     chat_session: ChatSession | None = None
     if paper_id is not None:
@@ -191,15 +297,10 @@ async def ask_about_quote(
     effective_pdf_filename = pdf_file.filename if pdf_file else (paper.original_filename if paper else None)
     effective_pdf_path = paper.file_path if paper else None
 
-    response_text = await answer_with_context(
-        question=question,
-        quote=quote,
-        pdf_bytes=pdf_bytes,
-        pdf_filename=effective_pdf_filename,
-        local_pdf_path=effective_pdf_path,
-    )
+    def persist_chat_turn(answer_text: str) -> None:
+        if paper_id is None:
+            return
 
-    if paper_id is not None:
         user_message = ChatMessage(
             paper_id=paper_id,
             session_id=chat_session.id if chat_session else None,
@@ -211,7 +312,7 @@ async def ask_about_quote(
             paper_id=paper_id,
             session_id=chat_session.id if chat_session else None,
             role="assistant",
-            content=response_text,
+            content=answer_text,
             quote="",
         )
 
@@ -221,6 +322,45 @@ async def ask_about_quote(
             db.query(ChatSession).filter(ChatSession.id == chat_session.id).update({"updated_at": datetime.utcnow()})
         db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
         db.commit()
+
+    if stream:
+        async def event_stream():
+            answer_parts: list[str] = []
+            try:
+                async for delta in answer_with_context_stream(
+                    question=question,
+                    quote=quote,
+                    pdf_bytes=pdf_bytes,
+                    pdf_filename=effective_pdf_filename,
+                    local_pdf_path=effective_pdf_path,
+                ):
+                    if not delta:
+                        continue
+
+                    answer_parts.append(delta)
+                    yield f"event: chunk\ndata: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+
+                answer_text = "".join(answer_parts)
+                persist_chat_turn(answer_text)
+                yield f"event: done\ndata: {json.dumps({'answer': answer_text}, ensure_ascii=False)}\n\n"
+            except Exception as exc:  # pragma: no cover - runtime path
+                yield f"event: error\ndata: {json.dumps({'detail': str(exc)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    response_text = await answer_with_context(
+        question=question,
+        quote=quote,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=effective_pdf_filename,
+        local_pdf_path=effective_pdf_path,
+    )
+
+    persist_chat_turn(response_text)
 
     return {"answer": response_text}
 
@@ -607,3 +747,274 @@ def delete_paper_session(
     db.commit()
 
     return {"deleted_session_id": session_id, "active_session_id": remaining.id}
+
+
+@router.get("/notes/folders/tree")
+def list_note_folder_tree(db: Session = Depends(get_db)) -> dict[str, list[dict[str, object]]]:
+    folders = db.query(NoteFolder).order_by(NoteFolder.name.asc()).all()
+    occupied_rows = db.query(Note.folder_id).filter(Note.folder_id.isnot(None)).distinct().all()
+    folder_ids_with_notes = {folder_id for (folder_id,) in occupied_rows if folder_id is not None}
+    return {"folders": _build_note_folder_tree(folders, folder_ids_with_notes)}
+
+
+@router.post("/notes/folders")
+def create_note_folder(
+    name: str = Form(...),
+    parent_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    folder_name = name.strip()
+    if not folder_name:
+        raise HTTPException(status_code=400, detail="Folder name is required")
+
+    if parent_id is not None:
+        parent = db.query(NoteFolder).filter(NoteFolder.id == parent_id).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent folder not found")
+
+    folder = NoteFolder(name=folder_name, parent_id=parent_id)
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return {"folder": _note_folder_to_dict(folder)}
+
+
+@router.patch("/notes/folders/{folder_id}/move")
+def move_note_folder(
+    folder_id: int,
+    target_parent_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if target_parent_id == folder_id:
+        raise HTTPException(status_code=400, detail="Folder cannot be moved into itself")
+
+    if target_parent_id is not None:
+        target_parent = db.query(NoteFolder).filter(NoteFolder.id == target_parent_id).first()
+        if not target_parent:
+            raise HTTPException(status_code=404, detail="Target parent folder not found")
+
+        descendants = _collect_descendant_note_folder_ids(folder_id, db.query(NoteFolder).all())
+        if target_parent_id in descendants:
+            raise HTTPException(status_code=400, detail="Folder cannot be moved into its descendant")
+
+    folder.parent_id = target_parent_id
+    folder.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(folder)
+    return {"folder": _note_folder_to_dict(folder)}
+
+
+@router.patch("/notes/folders/{folder_id}/rename")
+def rename_note_folder(
+    folder_id: int,
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    next_name = name.strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="Folder name is required")
+
+    folder.name = next_name
+    folder.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(folder)
+    return {"folder": _note_folder_to_dict(folder)}
+
+
+@router.delete("/notes/folders/{folder_id}")
+def delete_note_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
+    folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    all_folders = db.query(NoteFolder).all()
+    delete_folder_ids = _collect_descendant_note_folder_ids(folder_id, all_folders)
+
+    notes = db.query(Note).filter(Note.folder_id.in_(delete_folder_ids)).all()
+    delete_note_ids = [note.id for note in notes]
+    for note in notes:
+        target_path = Path(note.file_path)
+        if target_path.exists():
+            target_path.unlink(missing_ok=True)
+
+    if delete_note_ids:
+        db.query(Note).filter(Note.id.in_(delete_note_ids)).delete(synchronize_session=False)
+
+    db.query(NoteFolder).filter(NoteFolder.id.in_(delete_folder_ids)).delete(synchronize_session=False)
+    db.commit()
+
+    return {"deleted_folders": len(delete_folder_ids), "deleted_notes": len(delete_note_ids)}
+
+
+@router.get("/notes")
+def list_notes(
+    folder_id: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, str | int | None]]]:
+    query = db.query(Note)
+    if folder_id is None:
+        query = query.filter(Note.folder_id.is_(None))
+    else:
+        query = query.filter(Note.folder_id == folder_id)
+
+    notes = query.order_by(Note.updated_at.desc(), Note.id.desc()).all()
+    return {"notes": [_note_to_dict(note) for note in notes]}
+
+
+@router.post("/notes")
+def create_note(
+    title: str = Form(...),
+    content: str = Form(default=""),
+    folder_id: int | None = Form(default=None),
+    paper_id: int | None = Form(default=None),
+    session_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    note_title = title.strip()
+    if not note_title:
+        raise HTTPException(status_code=400, detail="Note title is required")
+
+    if folder_id is not None:
+        folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+    paper = None
+    if paper_id is not None:
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+
+    if session_id is not None:
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if paper is not None and session.paper_id != paper.id:
+            raise HTTPException(status_code=400, detail="Session does not belong to paper")
+        if paper is None:
+            paper_id = session.paper_id
+
+    file_path = persist_note_markdown(note_title, content, _note_folder_segments(db, folder_id))
+
+    note = Note(
+        title=note_title,
+        content=content,
+        paper_id=paper_id,
+        session_id=session_id,
+        folder_id=folder_id,
+        file_path=file_path,
+    )
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return {"note": _note_to_dict(note)}
+
+
+@router.get("/notes/{note_id}")
+def get_note(note_id: int, db: Session = Depends(get_db)) -> dict[str, dict[str, str | int | None]]:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"note": _note_to_dict(note)}
+
+
+@router.patch("/notes/{note_id}")
+def update_note(
+    note_id: int,
+    title: str | None = Form(default=None),
+    content: str | None = Form(default=None),
+    paper_id: int | None = Form(default=None),
+    session_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    title_changed = False
+    if title is not None:
+        next_title = title.strip()
+        if not next_title:
+            raise HTTPException(status_code=400, detail="Note title is required")
+        title_changed = next_title != note.title
+        note.title = next_title
+
+    if paper_id is not None:
+        if paper_id == 0:
+            note.paper_id = None
+        else:
+            paper = db.query(Paper).filter(Paper.id == paper_id).first()
+            if not paper:
+                raise HTTPException(status_code=404, detail="Paper not found")
+            note.paper_id = paper_id
+
+    if session_id is not None:
+        if session_id == 0:
+            note.session_id = None
+        else:
+            session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if note.paper_id is not None and session.paper_id != note.paper_id:
+                raise HTTPException(status_code=400, detail="Session does not belong to paper")
+            if note.paper_id is None:
+                note.paper_id = session.paper_id
+            note.session_id = session_id
+
+    if content is not None:
+        note.content = content
+
+    if title_changed:
+        note.file_path = rename_note_markdown_file(note.file_path, note.title)
+
+    note.updated_at = datetime.utcnow()
+    overwrite_note_markdown(note.file_path, note.content)
+    db.commit()
+    db.refresh(note)
+    return {"note": _note_to_dict(note)}
+
+
+@router.patch("/notes/{note_id}/move")
+def move_note(
+    note_id: int,
+    target_folder_id: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, dict[str, str | int | None]]:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    if target_folder_id is not None:
+        target_folder = db.query(NoteFolder).filter(NoteFolder.id == target_folder_id).first()
+        if not target_folder:
+            raise HTTPException(status_code=404, detail="Target folder not found")
+
+    note.folder_id = target_folder_id
+    note.file_path = move_note_file_to_segments(note.file_path, _note_folder_segments(db, target_folder_id))
+    note.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(note)
+    return {"note": _note_to_dict(note)}
+
+
+@router.delete("/notes/{note_id}")
+def delete_note(note_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    target_path = Path(note.file_path)
+    if target_path.exists():
+        target_path.unlink(missing_ok=True)
+
+    db.query(Note).filter(Note.id == note_id).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted_notes": 1}

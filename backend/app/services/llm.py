@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from openai import AsyncOpenAI
@@ -39,6 +40,42 @@ async def call_model(prompt: str) -> str:
         return completion.choices[0].message.content or ""
 
     return "模型未返回可解析内容。"
+
+
+async def call_model_stream(prompt: str) -> AsyncGenerator[str, None]:
+    if not OPENAI_API_KEY:
+        fallback = (
+            "[本地占位回复] 检测到未配置 OPENAI_API_KEY。"
+            "你提交的问题和引用已成功到达后端。"
+            "请在 backend/.env 中配置 OPENAI_API_KEY 后即可切换到真实大模型回答。\n\n"
+            f"Prompt Preview:\n{prompt[:800]}"
+        )
+        yield fallback
+        return
+
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_URL)
+    stream = await client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "你是一个学术论文阅读助手。",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        stream=True,
+    )
+
+    async for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+        text = delta.content if delta else None
+        if isinstance(text, str) and text:
+            yield text
 
 
 def _extract_json_block(raw_text: str) -> str:
@@ -120,6 +157,43 @@ async def answer_with_context(
     pdf_filename: str | None,
     local_pdf_path: str | None = None,
 ) -> str:
+    prompt = await _build_qa_prompt(
+        question=question,
+        quote=quote,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=pdf_filename,
+        local_pdf_path=local_pdf_path,
+    )
+
+    return await call_model(prompt)
+
+
+async def answer_with_context_stream(
+    question: str,
+    quote: str,
+    pdf_bytes: bytes | None,
+    pdf_filename: str | None,
+    local_pdf_path: str | None = None,
+) -> AsyncGenerator[str, None]:
+    prompt = await _build_qa_prompt(
+        question=question,
+        quote=quote,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=pdf_filename,
+        local_pdf_path=local_pdf_path,
+    )
+
+    async for token in call_model_stream(prompt):
+        yield token
+
+
+async def _build_qa_prompt(
+    question: str,
+    quote: str,
+    pdf_bytes: bytes | None,
+    pdf_filename: str | None,
+    local_pdf_path: str | None,
+) -> str:
     pdf_context = await extract_pdf_context_for_qa(
         pdf_bytes=pdf_bytes,
         pdf_filename=pdf_filename,
@@ -147,4 +221,4 @@ async def answer_with_context(
 3. 如果信息不足，明确说明还缺少什么。
 """.strip()
 
-    return await call_model(prompt)
+    return prompt
