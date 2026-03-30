@@ -30,7 +30,10 @@ function ReaderWorkspace({
   sessions,
   currentSessionId,
   sessionPanelMode,
+  sessionNotes,
+  noteGenLoading,
   setSessionPanelMode,
+  onGenerateSessionNotes,
   onSelectSession,
   onCreateSession,
   onRenameSession,
@@ -48,7 +51,6 @@ function ReaderWorkspace({
   onComposerKeyDown,
   onAsk
 }) {
-  const activeSession = sessions.find((session) => session.id === currentSessionId)
   const [editingSessionId, setEditingSessionId] = useState(null)
   const [editingSessionName, setEditingSessionName] = useState('')
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState(null)
@@ -58,7 +60,6 @@ function ReaderWorkspace({
   useEffect(() => {
     if (sessionPanelMode !== 'list') {
       setEditingSessionId(null)
-      setEditingSessionName('')
       setPendingDeleteSessionId(null)
       setDeletePopoverPosition(null)
     }
@@ -128,6 +129,14 @@ function ReaderWorkspace({
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  function getNotePreview(content) {
+    const plain = (content || '').replace(/^#+\s*/gm, '').replace(/\n+/g, ' ').trim()
+    if (!plain) {
+      return '暂无内容'
+    }
+    return plain.length > 88 ? `${plain.slice(0, 88)}...` : plain
   }
 
   return (
@@ -207,6 +216,16 @@ function ReaderWorkspace({
               >
                 Note
               </button>
+              <button
+                className="session-generate-note-button"
+                onClick={() => {
+                  void onGenerateSessionNotes()
+                }}
+                disabled={noteGenLoading || sessionLoading || !currentSessionId}
+                title="基于当前 Session 生成知识点笔记"
+              >
+                {noteGenLoading ? '生成中...' : '生成笔记'}
+              </button>
             </div>
 
             {sessionPanelMode === 'list' ? (
@@ -272,7 +291,6 @@ function ReaderWorkspace({
                         <div className="session-delete-wrap">
                           <button
                             className="session-delete-icon"
-                            data-tip="删除 Session"
                             aria-label="删除 Session"
                             onClick={(event) => {
                               event.preventDefault()
@@ -312,7 +330,21 @@ function ReaderWorkspace({
             ) : sessionPanelMode === 'summary' ? (
               <div className="session-empty-panel" />
             ) : sessionPanelMode === 'note' ? (
-              <div className="session-empty-panel" />
+              <div className="session-note-panel">
+                {sessionNotes.length === 0 ? (
+                  <div className="chat-empty">当前 Session 暂无笔记，点击右上角“生成笔记”。</div>
+                ) : (
+                  <div className="session-note-list">
+                    {sessionNotes.map((note) => (
+                      <article key={note.id} className="session-note-card">
+                        <h4>{note.title}</h4>
+                        <p>{getNotePreview(note.content)}</p>
+                        <span>{formatSessionTime(note.updated_at)}</span>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="chat-panel">
                 <div className="chat-messages" ref={messageListRef}>

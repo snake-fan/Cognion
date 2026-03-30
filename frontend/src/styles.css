@@ -930,6 +930,22 @@ textarea {
   color: #fff;
 }
 
+.session-generate-note-button {
+  border: 1px solid #9e6b00;
+  background: linear-gradient(135deg, #b77b00, #8f5b00);
+  color: #fff7e0;
+  border-radius: 4px;
+  height: 28px;
+  padding: 0 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.session-generate-note-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .zoom-controls {
   display: flex;
   align-items: center;
@@ -1038,6 +1054,47 @@ textarea {
 
 .session-empty-panel {
   height: calc(100% - 44px);
+}
+
+.session-note-panel {
+  height: calc(100% - 44px);
+  padding: 14px;
+  overflow: auto;
+}
+
+.session-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-note-card {
+  border: 1px solid #3f3f3f;
+  border-left: 4px solid #b77b00;
+  border-radius: 8px;
+  background: #262626;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-note-card h4 {
+  margin: 0;
+  color: #f2f2f2;
+  font-size: 13px;
+}
+
+.session-note-card p {
+  margin: 0;
+  color: #c8c8c8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.session-note-card span {
+  color: #9f9f9f;
+  font-size: 11px;
 }
 
 .session-create-button,
@@ -1158,24 +1215,6 @@ textarea {
   border-color: #744444;
   background: #4f2f2f;
   color: #ffdede;
-}
-
-.session-delete-icon:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: 34px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #111;
-  color: #ddd;
-  border: 1px solid #3d3d3d;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 6;
 }
 
 .session-delete-icon:disabled {

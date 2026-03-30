@@ -12,6 +12,7 @@ from .services import (
     answer_with_context,
     answer_with_context_stream,
     extract_paper_metadata,
+    generate_notes_from_session,
     move_note_file_to_segments,
     move_pdf_file_to_segments,
     overwrite_note_markdown,
@@ -263,6 +264,11 @@ def _note_folder_segments(db: Session, folder_id: int | None) -> list[str]:
 
     segments.reverse()
     return segments
+
+
+def _normalize_topic_key(value: str) -> str:
+    normalized = " ".join((value or "").strip().lower().split())
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in normalized).strip("-")
 
 
 @router.post("/ask", response_model=None)
@@ -747,6 +753,158 @@ def delete_paper_session(
     db.commit()
 
     return {"deleted_session_id": session_id, "active_session_id": remaining.id}
+
+
+@router.get("/papers/{paper_id}/sessions/{session_id}/notes")
+def list_session_notes(
+    paper_id: int,
+    session_id: int,
+    db: Session = Depends(get_db),
+) -> dict[str, list[dict[str, str | int | None]]]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    chat_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+        .first()
+    )
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    notes = (
+        db.query(Note)
+        .filter(Note.paper_id == paper_id, Note.session_id == session_id)
+        .order_by(Note.updated_at.desc(), Note.id.desc())
+        .all()
+    )
+    return {"notes": [_note_to_dict(note) for note in notes]}
+
+
+@router.post("/papers/{paper_id}/sessions/{session_id}/notes/generate")
+async def generate_notes_for_session(
+    paper_id: int,
+    session_id: int,
+    folder_id: int | None = None,
+    max_points: int | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    paper = db.query(Paper).filter(Paper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    chat_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+        .first()
+    )
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if folder_id is not None:
+        folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+    messages = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.paper_id == paper_id, ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+        .all()
+    )
+    if not messages:
+        raise HTTPException(status_code=400, detail="当前 Session 暂无对话，无法生成笔记")
+
+    existing_session_notes = db.query(Note).filter(Note.paper_id == paper_id, Note.session_id == session_id).all()
+    existing_topic_keys = [
+        _normalize_topic_key(note.title)
+        for note in existing_session_notes
+        if (note.title or "").strip()
+    ]
+
+    generated_notes = await generate_notes_from_session(
+        paper_title=paper.title,
+        paper_authors=paper.authors,
+        paper_topic=paper.research_topic,
+        session_messages=[
+            {
+                "role": message.role,
+                "content": message.content,
+                "quote": message.quote,
+            }
+            for message in messages
+        ],
+        existing_topic_keys=existing_topic_keys,
+        max_points=max_points,
+    )
+
+    created_notes: list[Note] = []
+    skipped_topics: list[dict[str, str]] = []
+    all_topic_keys = {key for key in existing_topic_keys if key}
+
+    for item in generated_notes:
+        title = str(item.get("title") or "").strip()
+        content = str(item.get("content") or "").strip()
+        candidate_topic_key = str(item.get("topic_key") or "").strip()
+        normalized_topic_key = _normalize_topic_key(candidate_topic_key or title)
+
+        if not title or not content:
+            skipped_topics.append(
+                {
+                    "title": title or "未命名知识点",
+                    "topic_key": normalized_topic_key,
+                    "reason": "empty_title_or_content",
+                }
+            )
+            continue
+
+        if normalized_topic_key and normalized_topic_key in all_topic_keys:
+            skipped_topics.append(
+                {
+                    "title": title,
+                    "topic_key": normalized_topic_key,
+                    "reason": "duplicate_topic",
+                }
+            )
+            continue
+
+        try:
+            file_path = persist_note_markdown(title, content, _note_folder_segments(db, folder_id))
+            note = Note(
+                title=title,
+                content=content,
+                paper_id=paper_id,
+                session_id=session_id,
+                folder_id=folder_id,
+                file_path=file_path,
+            )
+            db.add(note)
+            created_notes.append(note)
+            if normalized_topic_key:
+                all_topic_keys.add(normalized_topic_key)
+        except Exception:
+            skipped_topics.append(
+                {
+                    "title": title,
+                    "topic_key": normalized_topic_key,
+                    "reason": "persist_failed",
+                }
+            )
+
+    db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
+    db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
+    db.commit()
+
+    for note in created_notes:
+        db.refresh(note)
+
+    return {
+        "paper_id": paper_id,
+        "session_id": session_id,
+        "created_notes": [_note_to_dict(note) for note in created_notes],
+        "skipped_topics": skipped_topics,
+    }
 
 
 @router.get("/notes/folders/tree")

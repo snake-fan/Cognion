@@ -72,6 +72,19 @@ function useNotesData({ activePaperId, activeSessionId }) {
   }, [])
 
   useEffect(() => {
+    function onExternalNotesUpdated() {
+      void refreshFolders()
+      void refreshPapers()
+      void refreshNotes(selectedFolderId)
+    }
+
+    window.addEventListener('cognion:notes-updated', onExternalNotesUpdated)
+    return () => {
+      window.removeEventListener('cognion:notes-updated', onExternalNotesUpdated)
+    }
+  }, [selectedFolderId])
+
+  useEffect(() => {
     if (!selectedNoteId && notes.length > 0) {
       setSelectedNoteId(notes[0].id)
     }

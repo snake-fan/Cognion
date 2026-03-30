@@ -5,7 +5,7 @@ from .config import (
     MINERU_API_URL,
     MINERU_ENABLED,
 )
-from .llm import answer_with_context, answer_with_context_stream, extract_paper_metadata
+from .llm import answer_with_context, answer_with_context_stream, extract_paper_metadata, generate_notes_from_session
 from .mineru import call_mineru_api_with_pdf_url, upload_pdf_to_aliyun_oss
 from .note_storage import (
     move_note_file_to_segments,
@@ -24,6 +24,7 @@ __all__ = [
     "answer_with_context",
     "answer_with_context_stream",
     "extract_paper_metadata",
+    "generate_notes_from_session",
     "call_mineru_api_with_pdf_url",
     "upload_pdf_to_aliyun_oss",
     "move_pdf_file_to_segments",

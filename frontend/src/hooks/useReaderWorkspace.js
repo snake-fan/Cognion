@@ -5,7 +5,9 @@ import {
   deletePaperSession,
   fetchPaperFile,
   fetchPaperMessages,
+  fetchSessionNotes,
   fetchPaperSessions,
+  generateSessionNotes,
   renamePaperSession
 } from '../services/api'
 
@@ -30,6 +32,8 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [sessions, setSessions] = useState([])
   const [currentSessionId, setCurrentSessionId] = useState(null)
   const [sessionPanelMode, setSessionPanelMode] = useState('chat')
+  const [sessionNotes, setSessionNotes] = useState([])
+  const [noteGenLoading, setNoteGenLoading] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -64,6 +68,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   function clearReaderState({ clearPdf } = { clearPdf: true }) {
     setMessages([])
     setSessions([])
+    setSessionNotes([])
     setCurrentSessionId(null)
     setSessionPanelMode('chat')
     setExpandedQuoteMessageIndex(null)
@@ -242,18 +247,38 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
       setSessionPanelMode('chat')
 
       if (resolvedSessionId !== null) {
-        const nextMessages = await fetchPaperMessages(paperId, resolvedSessionId)
+        const [nextMessages, nextNotes] = await Promise.all([
+          fetchPaperMessages(paperId, resolvedSessionId),
+          fetchSessionNotes(paperId, resolvedSessionId)
+        ])
         setMessages(nextMessages)
+        setSessionNotes(nextNotes)
       } else {
         setMessages([])
+        setSessionNotes([])
       }
     } catch (error) {
       console.error(error)
       setSessions([])
       setCurrentSessionId(null)
       setMessages([])
+      setSessionNotes([])
     } finally {
       setSessionLoading(false)
+    }
+  }
+
+  async function refreshSessionNotes(paperId = activeProjectId, sessionId = currentSessionId) {
+    if (!paperId || !sessionId) {
+      setSessionNotes([])
+      return
+    }
+    try {
+      const nextNotes = await fetchSessionNotes(paperId, sessionId)
+      setSessionNotes(nextNotes)
+    } catch (error) {
+      console.error(error)
+      setSessionNotes([])
     }
   }
 
@@ -382,9 +407,13 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
 
     setSessionLoading(true)
     try {
-      const nextMessages = await fetchPaperMessages(activeProjectId, sessionId)
+      const [nextMessages, nextNotes] = await Promise.all([
+        fetchPaperMessages(activeProjectId, sessionId),
+        fetchSessionNotes(activeProjectId, sessionId)
+      ])
       setCurrentSessionId(sessionId)
       setMessages(nextMessages)
+      setSessionNotes(nextNotes)
       setExpandedQuoteMessageIndex(null)
       setSessionPanelMode('chat')
     } catch (error) {
@@ -406,6 +435,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
       setSessions((prev) => [newSession, ...prev])
       setCurrentSessionId(newSession.id)
       setMessages([])
+      setSessionNotes([])
       setExpandedQuoteMessageIndex(null)
       setQuote('')
       clearPersistentHighlight()
@@ -469,10 +499,15 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
       setCurrentSessionId(nextSessionId)
 
       if (nextSessionId !== null) {
-        const nextMessages = await fetchPaperMessages(activeProjectId, nextSessionId)
+        const [nextMessages, nextNotes] = await Promise.all([
+          fetchPaperMessages(activeProjectId, nextSessionId),
+          fetchSessionNotes(activeProjectId, nextSessionId)
+        ])
         setMessages(nextMessages)
+        setSessionNotes(nextNotes)
       } else {
         setMessages([])
+        setSessionNotes([])
       }
 
       setExpandedQuoteMessageIndex(null)
@@ -492,6 +527,34 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       onAsk()
+    }
+  }
+
+  async function onGenerateSessionNotes() {
+    if (!activeProjectId || !currentSessionId || noteGenLoading || sessionLoading) {
+      return
+    }
+
+    setNoteGenLoading(true)
+    try {
+      const result = await generateSessionNotes(activeProjectId, currentSessionId)
+      const createdCount = Array.isArray(result?.created_notes) ? result.created_notes.length : 0
+      const skippedCount = Array.isArray(result?.skipped_topics) ? result.skipped_topics.length : 0
+
+      await refreshSessionNotes(activeProjectId, currentSessionId)
+      window.dispatchEvent(new CustomEvent('cognion:notes-updated'))
+      setSessionPanelMode('note')
+
+      if (createdCount === 0) {
+        window.alert('未生成新的知识点笔记，可能已与现有笔记重复。')
+      } else if (skippedCount > 0) {
+        window.alert(`已生成 ${createdCount} 条笔记，跳过 ${skippedCount} 条重复知识点。`)
+      }
+    } catch (error) {
+      console.error(error)
+      window.alert(`生成笔记失败：${error?.message || '未知错误'}`)
+    } finally {
+      setNoteGenLoading(false)
     }
   }
 
@@ -615,6 +678,8 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     sessions,
     currentSessionId,
     sessionPanelMode,
+    sessionNotes,
+    noteGenLoading,
     setSessionPanelMode,
     onSelectSession,
     onCreateSession,
@@ -631,6 +696,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     question,
     onComposerChange,
     onComposerKeyDown,
+    onGenerateSessionNotes,
     onAsk,
     openUploadedPaper,
     openExistingPaper,

@@ -235,6 +235,47 @@ export async function deletePaperSession(paperId, sessionId) {
   return response.json()
 }
 
+export async function fetchSessionNotes(paperId, sessionId) {
+  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes`)
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+  }
+  const payload = await response.json()
+  return payload.notes || []
+}
+
+export async function generateSessionNotes(paperId, sessionId, { folderId = null, maxPoints = null } = {}) {
+  const search = new URLSearchParams()
+  if (folderId !== null && folderId !== undefined) {
+    search.set('folder_id', String(folderId))
+  }
+  if (maxPoints !== null && maxPoints !== undefined) {
+    search.set('max_points', String(maxPoints))
+  }
+
+  const query = search.toString()
+
+  const response = await fetch(
+    `${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes/generate${query ? `?${query}` : ''}`,
+    {
+      method: 'POST'
+    }
+  )
+
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const payload = await response.json()
+      detail = payload?.detail ? ` - ${payload.detail}` : ''
+    } catch {
+      detail = ''
+    }
+    throw new Error(`Generate session notes failed: ${response.status}${detail}`)
+  }
+
+  return response.json()
+}
+
 export async function fetchFolderTree() {
   const response = await fetch(`${API_BASE}/folders/tree`)
   if (!response.ok) {

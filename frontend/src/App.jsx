@@ -81,6 +81,8 @@ function App() {
     sessions,
     currentSessionId,
     sessionPanelMode,
+    sessionNotes,
+    noteGenLoading,
     setSessionPanelMode,
     onSelectSession,
     onCreateSession,
@@ -97,6 +99,7 @@ function App() {
     question,
     onComposerChange,
     onComposerKeyDown,
+    onGenerateSessionNotes,
     onAsk,
     openUploadedPaper,
     openExistingPaper,
@@ -359,7 +362,10 @@ function App() {
         sessions={sessions}
         currentSessionId={currentSessionId}
         sessionPanelMode={sessionPanelMode}
+        sessionNotes={sessionNotes}
+        noteGenLoading={noteGenLoading}
         setSessionPanelMode={setSessionPanelMode}
+        onGenerateSessionNotes={onGenerateSessionNotes}
         onSelectSession={onSelectSession}
         onCreateSession={onCreateSession}
         onRenameSession={onRenameSession}
