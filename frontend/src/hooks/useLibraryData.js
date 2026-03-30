@@ -77,6 +77,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
 
   async function onFolderDrop(event, targetFolderId) {
     event.preventDefault()
+    event.stopPropagation()
     const dragType = event.dataTransfer.getData('cognion-drag-type')
     const dragId = event.dataTransfer.getData('cognion-drag-id')
     if (!dragType || !dragId) {
@@ -86,6 +87,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
     try {
       if (dragType === 'paper') {
         await movePaper(Number(dragId), targetFolderId)
+        await refreshFolders()
         await refreshPapers(selectedFolderId)
       }
 
@@ -112,6 +114,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
 
   async function onRootDrop(event) {
     event.preventDefault()
+    event.stopPropagation()
     const dragType = event.dataTransfer.getData('cognion-drag-type')
     const dragId = event.dataTransfer.getData('cognion-drag-id')
     if (!dragType || !dragId) {
@@ -121,6 +124,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
     try {
       if (dragType === 'paper') {
         await movePaper(Number(dragId), null)
+        await refreshFolders()
         await refreshPapers(selectedFolderId)
       }
       if (dragType === 'folder') {
@@ -130,7 +134,8 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
       }
     } catch (error) {
       console.error(error)
-      window.alert('移动到根目录失败')
+      const detail = error instanceof Error ? error.message : ''
+      window.alert(detail ? `移动到根目录失败\n${detail}` : '移动到根目录失败')
     }
   }
 
@@ -233,6 +238,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
       if (deleteDialog.type === 'project') {
         const project = deleteDialog.payload
         await deletePaper(project.id)
+        await refreshFolders()
         await refreshPapers(selectedFolderId)
         if (activeProjectId === project.id) {
           onActiveProjectDeleted(project.id)
@@ -260,6 +266,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
     libraryLoading,
     setLibraryLoading,
     folders,
+    refreshFolders,
     selectedFolderId,
     selectedFolderName,
     activeFolderIds,

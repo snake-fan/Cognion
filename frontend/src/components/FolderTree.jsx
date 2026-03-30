@@ -15,7 +15,7 @@ function FolderNode({
   const isActive = activeFolderIds.includes(node.id)
   const isExpanded = expandedMap[node.id] ?? true
   const hasChildren = node.children?.length > 0
-  const folderIcon = node.has_papers ? '🗂️' : '📁'
+  const folderIcon = node.has_papers || node.has_notes ? '🗂️' : '📁'
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(node.name)
   const [renameLoading, setRenameLoading] = useState(false)
