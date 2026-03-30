@@ -1,0 +1,602 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  askWithQuote,
+  createPaperSession,
+  deletePaperSession,
+  fetchPaperFile,
+  fetchPaperMessages,
+  fetchPaperSessions,
+  renamePaperSession
+} from '../services/api'
+
+const PDF_PANEL_HORIZONTAL_PADDING = 28
+
+function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
+  const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [rightWidth, setRightWidth] = useState(380)
+  const [isResizing, setIsResizing] = useState(false)
+
+  const [pdfFile, setPdfFile] = useState(null)
+  const [pdfUrl, setPdfUrl] = useState(null)
+  const [numPages, setNumPages] = useState(0)
+  const [zoom, setZoom] = useState(1)
+  const [panelWidth, setPanelWidth] = useState(920)
+  const pdfPanelRef = useRef(null)
+
+  const [quote, setQuote] = useState('')
+  const [expandedQuoteMessageIndex, setExpandedQuoteMessageIndex] = useState(null)
+  const [question, setQuestion] = useState('')
+  const [messages, setMessages] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [currentSessionId, setCurrentSessionId] = useState(null)
+  const [sessionPanelMode, setSessionPanelMode] = useState('chat')
+  const [sessionLoading, setSessionLoading] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const composerRef = useRef(null)
+  const messageListRef = useRef(null)
+  const resizeLockRef = useRef(false)
+  const rightSidebarRef = useRef(null)
+  const dragWidthRef = useRef(380)
+  const resizeRafRef = useRef(null)
+
+  function canUseCssHighlights() {
+    return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof window.Highlight !== 'undefined'
+  }
+
+  function setPersistentHighlight(range) {
+    if (!canUseCssHighlights() || !range) {
+      return
+    }
+
+    const highlight = new window.Highlight(range)
+    CSS.highlights.set('pdf-selection', highlight)
+  }
+
+  function clearPersistentHighlight() {
+    if (!canUseCssHighlights()) {
+      return
+    }
+
+    CSS.highlights.delete('pdf-selection')
+  }
+
+  function clearReaderState({ clearPdf } = { clearPdf: true }) {
+    setMessages([])
+    setSessions([])
+    setCurrentSessionId(null)
+    setSessionPanelMode('chat')
+    setExpandedQuoteMessageIndex(null)
+    setQuote('')
+    setQuestion('')
+    setLoading(false)
+    setSessionLoading(false)
+    clearPersistentHighlight()
+
+    if (clearPdf) {
+      setPdfFile(null)
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl)
+      }
+      setPdfUrl(null)
+      setNumPages(0)
+      setZoom(1)
+    }
+  }
+
+  function onActiveProjectDeleted(deletedProjectId) {
+    if (activeProjectId !== deletedProjectId) {
+      return
+    }
+
+    setActiveProjectId(null)
+    clearReaderState({ clearPdf: true })
+  }
+
+  useEffect(() => {
+    function onMouseMove(event) {
+      if (!isResizing || rightCollapsed) {
+        return
+      }
+      const maxWidth = window.innerWidth - PDF_PANEL_HORIZONTAL_PADDING - 1000
+      const minWidth = 280
+      const nextWidth = window.innerWidth - event.clientX
+      const clamped = Math.max(minWidth, Math.min(maxWidth, nextWidth))
+      dragWidthRef.current = clamped
+
+      if (resizeRafRef.current !== null) {
+        return
+      }
+
+      resizeRafRef.current = window.requestAnimationFrame(() => {
+        if (rightSidebarRef.current && !rightCollapsed) {
+          rightSidebarRef.current.style.width = `${dragWidthRef.current}px`
+        }
+        resizeRafRef.current = null
+      })
+    }
+
+    function onMouseUp() {
+      if (!isResizing) {
+        return
+      }
+
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current)
+        resizeRafRef.current = null
+      }
+
+      const committedWidth = dragWidthRef.current
+      setRightWidth(committedWidth)
+
+      if (rightSidebarRef.current && !rightCollapsed) {
+        rightSidebarRef.current.style.width = `${committedWidth}px`
+      }
+
+      if (pdfPanelRef.current) {
+        const nextWidth = Math.max(
+          320,
+          Math.floor(pdfPanelRef.current.clientWidth - PDF_PANEL_HORIZONTAL_PADDING)
+        )
+        setPanelWidth(nextWidth)
+      }
+
+      resizeLockRef.current = false
+      setIsResizing(false)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current)
+        resizeRafRef.current = null
+      }
+    }
+  }, [isResizing, rightCollapsed])
+
+  useEffect(() => {
+    if (!isResizing) {
+      return
+    }
+
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    return () => {
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+    }
+  }, [isResizing])
+
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl)
+      }
+    }
+  }, [pdfUrl])
+
+  useEffect(() => {
+    if (!pdfPanelRef.current) {
+      return
+    }
+
+    const panelElement = pdfPanelRef.current
+
+    function updatePanelWidth() {
+      if (resizeLockRef.current) {
+        return
+      }
+
+      const nextWidth = Math.max(320, Math.floor(panelElement.clientWidth - PDF_PANEL_HORIZONTAL_PADDING))
+      setPanelWidth(nextWidth)
+    }
+
+    updatePanelWidth()
+
+    const resizeObserver = new ResizeObserver(updatePanelWidth)
+    resizeObserver.observe(panelElement)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [])
+
+  function loadPdfToWorkspace(nextFile) {
+    if (!nextFile) {
+      return
+    }
+
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl)
+    }
+
+    setPdfFile(nextFile)
+    setPdfUrl(URL.createObjectURL(nextFile))
+    setNumPages(0)
+    setZoom(1)
+    setQuote('')
+    setExpandedQuoteMessageIndex(null)
+    clearPersistentHighlight()
+  }
+
+  async function hydrateSessionsAndMessages(paperId, preferredSessionId = null) {
+    setSessionLoading(true)
+    try {
+      const nextSessions = await fetchPaperSessions(paperId)
+      setSessions(nextSessions)
+
+      const resolvedSessionId =
+        preferredSessionId && nextSessions.some((session) => session.id === preferredSessionId)
+          ? preferredSessionId
+          : (nextSessions[0]?.id ?? null)
+
+      setCurrentSessionId(resolvedSessionId)
+      setSessionPanelMode('chat')
+
+      if (resolvedSessionId !== null) {
+        const nextMessages = await fetchPaperMessages(paperId, resolvedSessionId)
+        setMessages(nextMessages)
+      } else {
+        setMessages([])
+      }
+    } catch (error) {
+      console.error(error)
+      setSessions([])
+      setCurrentSessionId(null)
+      setMessages([])
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function openUploadedPaper(file, paperId) {
+    setActiveProjectId(paperId)
+    clearReaderState({ clearPdf: false })
+    loadPdfToWorkspace(file)
+    await hydrateSessionsAndMessages(paperId)
+  }
+
+  async function openExistingPaper(paperId, originalFilename = 'paper.pdf') {
+    setActiveProjectId(paperId)
+    clearReaderState({ clearPdf: true })
+
+    const pdfBlob = await fetchPaperFile(paperId)
+    await hydrateSessionsAndMessages(paperId)
+
+    const restoredFile = new File([pdfBlob], originalFilename, {
+      type: 'application/pdf'
+    })
+    loadPdfToWorkspace(restoredFile)
+  }
+
+  function onTextSelection() {
+    if (isResizing || resizeLockRef.current) {
+      return
+    }
+
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim() || ''
+
+    if (selectedText.length > 0) {
+      setQuote(selectedText)
+      if (selection && selection.rangeCount > 0) {
+        setPersistentHighlight(selection.getRangeAt(0).cloneRange())
+      }
+      return
+    }
+
+    setQuote('')
+    clearPersistentHighlight()
+  }
+
+  async function onAsk() {
+    const trimmedQuestion = question.trim()
+    if (!trimmedQuestion || !activeProjectId || !currentSessionId) {
+      return
+    }
+
+    const attachedQuote = quote.trim()
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'user',
+        content: trimmedQuestion,
+        quote: attachedQuote,
+        session_id: currentSessionId
+      }
+    ])
+    setQuestion('')
+    setLoading(true)
+
+    try {
+      const result = await askWithQuote({
+        question: trimmedQuestion,
+        quote,
+        pdfFile,
+        paperId: activeProjectId,
+        sessionId: currentSessionId
+      })
+      setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }])
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: `请求失败：${error.message}` }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function onComposerChange(event) {
+    setQuestion(event.target.value)
+  }
+
+  async function onSelectSession(sessionId) {
+    if (!activeProjectId) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const nextMessages = await fetchPaperMessages(activeProjectId, sessionId)
+      setCurrentSessionId(sessionId)
+      setMessages(nextMessages)
+      setExpandedQuoteMessageIndex(null)
+      setSessionPanelMode('chat')
+    } catch (error) {
+      console.error(error)
+      window.alert('切换 Session 失败')
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onCreateSession() {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const newSession = await createPaperSession(activeProjectId)
+      setSessions((prev) => [newSession, ...prev])
+      setCurrentSessionId(newSession.id)
+      setMessages([])
+      setExpandedQuoteMessageIndex(null)
+      setQuote('')
+      clearPersistentHighlight()
+      setSessionPanelMode('chat')
+    } catch (error) {
+      console.error(error)
+      window.alert(`新建 Session 失败：${error?.message || '未知错误'}`)
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onRenameSession(sessionId, nextName) {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    const trimmedName = nextName.trim()
+    if (!trimmedName) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const renamed = await renamePaperSession(activeProjectId, sessionId, trimmedName)
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                ...renamed
+              }
+            : session
+        )
+      )
+    } catch (error) {
+      console.error(error)
+      window.alert('重命名 Session 失败')
+      throw error
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function onDeleteSession(sessionId) {
+    if (!activeProjectId || sessionLoading) {
+      return
+    }
+
+    setSessionLoading(true)
+    try {
+      const result = await deletePaperSession(activeProjectId, sessionId)
+      const nextSessions = await fetchPaperSessions(activeProjectId)
+      setSessions(nextSessions)
+
+      const nextSessionId =
+        result.active_session_id && nextSessions.some((session) => session.id === result.active_session_id)
+          ? result.active_session_id
+          : (nextSessions[0]?.id ?? null)
+
+      setCurrentSessionId(nextSessionId)
+
+      if (nextSessionId !== null) {
+        const nextMessages = await fetchPaperMessages(activeProjectId, nextSessionId)
+        setMessages(nextMessages)
+      } else {
+        setMessages([])
+      }
+
+      setExpandedQuoteMessageIndex(null)
+      setQuote('')
+      clearPersistentHighlight()
+      setSessionPanelMode('list')
+    } catch (error) {
+      console.error(error)
+      window.alert('删除 Session 失败')
+      throw error
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  function onComposerKeyDown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      onAsk()
+    }
+  }
+
+  function onResizeHandleMouseDown() {
+    resizeLockRef.current = true
+    dragWidthRef.current = rightSidebarRef.current
+      ? Math.floor(rightSidebarRef.current.getBoundingClientRect().width)
+      : rightWidth
+    setIsResizing(true)
+  }
+
+  const rightStyle = useMemo(() => {
+    if (rightCollapsed) {
+      return { width: 0, minWidth: 0, borderLeft: 'none', overflow: 'hidden' }
+    }
+    return { width: rightWidth }
+  }, [rightCollapsed, rightWidth])
+
+  const pageWidth = useMemo(() => {
+    return Math.max(320, Math.floor(panelWidth * zoom))
+  }, [panelWidth, zoom])
+
+  function zoomIn() {
+    setZoom((value) => Math.min(2.5, Number((value + 0.1).toFixed(1))))
+  }
+
+  function zoomOut() {
+    setZoom((value) => Math.max(0.5, Number((value - 0.1).toFixed(1))))
+  }
+
+  function resetZoom() {
+    setZoom(1)
+  }
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (!(event.ctrlKey || event.metaKey)) {
+        return
+      }
+
+      if (event.key === '+' || event.key === '=' || event.key === 'Add') {
+        event.preventDefault()
+        zoomIn()
+        return
+      }
+
+      if (event.key === '-' || event.key === '_' || event.key === 'Subtract') {
+        event.preventDefault()
+        zoomOut()
+        return
+      }
+
+      if (event.key === '0' || event.key === 'Numpad0') {
+        event.preventDefault()
+        resetZoom()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!composerRef.current) {
+      return
+    }
+
+    const inputElement = composerRef.current
+    inputElement.style.height = 'auto'
+    const lineHeight = 24
+    const maxHeight = lineHeight * 4
+    inputElement.style.height = `${Math.min(inputElement.scrollHeight, maxHeight)}px`
+    inputElement.style.overflowY = 'hidden'
+  }, [question])
+
+  useEffect(() => {
+    if (!messageListRef.current) {
+      return
+    }
+    messageListRef.current.scrollTop = messageListRef.current.scrollHeight
+  }, [messages, loading])
+
+  useEffect(() => {
+    if (expandedQuoteMessageIndex === null) {
+      return
+    }
+
+    function onDocumentPointerDown(event) {
+      const targetElement = event.target instanceof Element ? event.target : null
+      if (targetElement?.closest('.message-quote-bubble')) {
+        return
+      }
+      setExpandedQuoteMessageIndex(null)
+    }
+
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    return () => {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+    }
+  }, [expandedQuoteMessageIndex])
+
+  return {
+    rightCollapsed,
+    setRightCollapsed,
+    isResizing,
+    rightStyle,
+    rightSidebarRef,
+    onResizeHandleMouseDown,
+    zoom,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    pdfUrl,
+    numPages,
+    setNumPages,
+    pageWidth,
+    onTextSelection,
+    pdfPanelRef,
+    sessions,
+    currentSessionId,
+    sessionPanelMode,
+    setSessionPanelMode,
+    onSelectSession,
+    onCreateSession,
+    onRenameSession,
+    onDeleteSession,
+    sessionLoading,
+    messages,
+    loading,
+    expandedQuoteMessageIndex,
+    setExpandedQuoteMessageIndex,
+    quote,
+    messageListRef,
+    composerRef,
+    question,
+    onComposerChange,
+    onComposerKeyDown,
+    onAsk,
+    openUploadedPaper,
+    openExistingPaper,
+    onActiveProjectDeleted
+  }
+}
+
+export default useReaderWorkspace
