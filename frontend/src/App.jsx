@@ -10,7 +10,6 @@ const PRIMARY_NAV_ITEMS = [
   { key: 'library', label: '文献库', enabled: true },
   { key: 'notes', label: '笔记', enabled: true },
   { key: 'knowledge', label: '知识库（预留）', enabled: false },
-  { key: 'workspace', label: '工作流（预留）', enabled: false }
 ]
 
 const NAV_ICONS = {
