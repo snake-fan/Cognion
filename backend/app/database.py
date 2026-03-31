@@ -58,6 +58,7 @@ def init_database() -> None:
 
     inspector = inspect(engine)
     chat_message_columns = {column["name"] for column in inspector.get_columns("chat_messages")}
+    note_columns = {column["name"] for column in inspector.get_columns("notes")}
 
     with engine.begin() as connection:
         if "session_id" not in chat_message_columns:
@@ -111,3 +112,17 @@ def init_database() -> None:
                 ),
                 {"session_id": session_id, "paper_id": paper_id},
             )
+
+        if "note_id" not in note_columns:
+            connection.execute(text("ALTER TABLE notes ADD COLUMN note_id VARCHAR(64)"))
+        if "topic_key" not in note_columns:
+            connection.execute(text("ALTER TABLE notes ADD COLUMN topic_key VARCHAR(255)"))
+        if "summary" not in note_columns:
+            connection.execute(text("ALTER TABLE notes ADD COLUMN summary TEXT"))
+        if "structured_data" not in note_columns:
+            connection.execute(text("ALTER TABLE notes ADD COLUMN structured_data JSON"))
+
+        connection.execute(text("UPDATE notes SET note_id = '' WHERE note_id IS NULL"))
+        connection.execute(text("UPDATE notes SET topic_key = '' WHERE topic_key IS NULL"))
+        connection.execute(text("UPDATE notes SET summary = '' WHERE summary IS NULL"))
+        connection.execute(text("UPDATE notes SET structured_data = '{}'::json WHERE structured_data IS NULL"))

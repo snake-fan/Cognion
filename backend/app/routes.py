@@ -167,11 +167,16 @@ def _folder_segments(db: Session, folder_id: int | None) -> list[str]:
     return segments
 
 
-def _note_to_dict(note: Note) -> dict[str, str | int | None]:
+def _note_to_dict(note: Note) -> dict[str, object]:
+    structured_data = note.structured_data if isinstance(note.structured_data, dict) else {}
     return {
         "id": note.id,
+        "note_id": note.note_id,
         "title": note.title,
+        "topic_key": note.topic_key,
+        "summary": note.summary,
         "content": note.content,
+        "structured_data": structured_data,
         "paper_id": note.paper_id,
         "session_id": note.session_id,
         "folder_id": note.folder_id,
@@ -269,6 +274,20 @@ def _note_folder_segments(db: Session, folder_id: int | None) -> list[str]:
 def _normalize_topic_key(value: str) -> str:
     normalized = " ".join((value or "").strip().lower().split())
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in normalized).strip("-")
+
+
+def _note_topic_key(note: Note) -> str:
+    return _normalize_topic_key(note.topic_key or note.title)
+
+
+def _sync_markdown_title(content: str, title: str) -> str:
+    if not content:
+        return content
+    lines = content.splitlines()
+    if lines and lines[0].startswith("# "):
+        lines[0] = f"# {title}"
+        return "\n".join(lines)
+    return content
 
 
 @router.post("/ask", response_model=None)
@@ -763,7 +782,7 @@ def list_session_notes(
     paper_id: str,
     session_id: int,
     db: Session = Depends(get_db),
-) -> dict[str, list[dict[str, str | int | None]]]:
+) -> dict[str, list[dict[str, object]]]:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -819,11 +838,11 @@ async def generate_notes_for_session(
     if not messages:
         raise HTTPException(status_code=400, detail="当前 Session 暂无对话，无法生成笔记")
 
-    existing_session_notes = db.query(Note).filter(Note.paper_id == paper_id, Note.session_id == session_id).all()
+    existing_session_notes = db.query(Note).filter(Note.paper_id == paper_id).all()
     existing_topic_keys = [
-        _normalize_topic_key(note.title)
+        _note_topic_key(note)
         for note in existing_session_notes
-        if (note.title or "").strip()
+        if _note_topic_key(note)
     ]
 
     generated_notes = await generate_notes_from_session(
@@ -849,8 +868,26 @@ async def generate_notes_for_session(
     for item in generated_notes:
         title = str(item.get("title") or "").strip()
         content = str(item.get("content") or "").strip()
+        note_id = str(item.get("note_id") or "").strip()
+        summary = str(item.get("summary") or "").strip()
         candidate_topic_key = str(item.get("topic_key") or "").strip()
         normalized_topic_key = _normalize_topic_key(candidate_topic_key or title)
+        structured_data = {
+            "note_id": note_id,
+            "title": title,
+            "topic_key": normalized_topic_key,
+            "summary": summary,
+            "knowledge_unit": item.get("knowledge_unit") if isinstance(item.get("knowledge_unit"), dict) else {},
+            "user_model_signal": item.get("user_model_signal")
+            if isinstance(item.get("user_model_signal"), dict)
+            else {},
+            "evidence": item.get("evidence") if isinstance(item.get("evidence"), list) else [],
+            "graph_suggestions": item.get("graph_suggestions")
+            if isinstance(item.get("graph_suggestions"), dict)
+            else {},
+            "open_questions": item.get("open_questions") if isinstance(item.get("open_questions"), list) else [],
+            "dedupe_hints": item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {},
+        }
 
         if not title or not content:
             skipped_topics.append(
@@ -875,8 +912,12 @@ async def generate_notes_for_session(
         try:
             file_path = persist_note_markdown(title, content, _note_folder_segments(db, folder_id))
             note = Note(
+                note_id=note_id or "",
                 title=title,
+                topic_key=normalized_topic_key,
+                summary=summary,
                 content=content,
+                structured_data=structured_data,
                 paper_id=paper_id,
                 session_id=session_id,
                 folder_id=folder_id,
@@ -1019,7 +1060,7 @@ def delete_note_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[st
 def list_notes(
     folder_id: int | None = None,
     db: Session = Depends(get_db),
-) -> dict[str, list[dict[str, str | int | None]]]:
+) -> dict[str, list[dict[str, object]]]:
     query = db.query(Note)
     if folder_id is not None:
         query = query.filter(Note.folder_id == folder_id)
@@ -1036,7 +1077,7 @@ def create_note(
     paper_id: str | None = Form(default=None),
     session_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
-) -> dict[str, dict[str, str | int | None]]:
+) -> dict[str, dict[str, object]]:
     note_title = title.strip()
     if not note_title:
         raise HTTPException(status_code=400, detail="Note title is required")
@@ -1064,8 +1105,12 @@ def create_note(
     file_path = persist_note_markdown(note_title, content, _note_folder_segments(db, folder_id))
 
     note = Note(
+        note_id="",
         title=note_title,
+        topic_key=_normalize_topic_key(note_title),
+        summary="",
         content=content,
+        structured_data={},
         paper_id=paper_id,
         session_id=session_id,
         folder_id=folder_id,
@@ -1078,7 +1123,7 @@ def create_note(
 
 
 @router.get("/notes/{note_id}")
-def get_note(note_id: int, db: Session = Depends(get_db)) -> dict[str, dict[str, str | int | None]]:
+def get_note(note_id: int, db: Session = Depends(get_db)) -> dict[str, dict[str, object]]:
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -1093,11 +1138,12 @@ def update_note(
     paper_id: str | None = Form(default=None),
     session_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
-) -> dict[str, dict[str, str | int | None]]:
+) -> dict[str, dict[str, object]]:
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
+    previous_title = note.title
     title_changed = False
     if title is not None:
         next_title = title.strip()
@@ -1132,6 +1178,19 @@ def update_note(
         note.content = content
 
     if title_changed:
+        previous_topic_key = _normalize_topic_key(note.topic_key or previous_title)
+        if not note.topic_key or note.topic_key == previous_topic_key:
+            note.topic_key = _normalize_topic_key(note.title)
+        if isinstance(note.structured_data, dict) and note.structured_data:
+            next_structured_data = dict(note.structured_data)
+            next_structured_data["title"] = note.title
+            if next_structured_data.get("topic_key") == previous_topic_key:
+                next_structured_data["topic_key"] = note.topic_key
+            note.structured_data = next_structured_data
+        if content is None:
+            note.content = _sync_markdown_title(note.content, note.title)
+
+    if title_changed:
         note.file_path = rename_note_markdown_file(note.file_path, note.title)
 
     note.updated_at = datetime.utcnow()
@@ -1146,7 +1205,7 @@ def move_note(
     note_id: int,
     target_folder_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
-) -> dict[str, dict[str, str | int | None]]:
+) -> dict[str, dict[str, object]]:
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")

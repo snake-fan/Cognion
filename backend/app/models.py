@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -90,8 +90,12 @@ class Note(Base):
     __tablename__ = "notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    note_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    topic_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    structured_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
     session_id: Mapped[int | None] = mapped_column(
         ForeignKey("chat_sessions.id", ondelete="SET NULL"),
