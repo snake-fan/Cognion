@@ -931,14 +931,25 @@ textarea {
 }
 
 .session-generate-note-button {
-  border: 1px solid #9e6b00;
-  background: linear-gradient(135deg, #b77b00, #8f5b00);
-  color: #fff7e0;
+  margin-left: auto;
+  position: relative;
+  border: 1px solid #ffffff;
+  border-image: none;
+  background: transparent;
+  color: #ffffff;
   border-radius: 4px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 9px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 500;
+  box-shadow: none;
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+
+.session-generate-note-button:not(:disabled):hover {
+  border-color: transparent;
+  border-image: linear-gradient(135deg, #f6d77a, #b8860b) 1;
+  color: #f2c94c;
 }
 
 .session-generate-note-button:disabled {
