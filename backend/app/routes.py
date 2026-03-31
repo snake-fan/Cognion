@@ -62,7 +62,7 @@ def _session_to_dict(chat_session: ChatSession) -> dict[str, str | int]:
     }
 
 
-def _ensure_default_session(db: Session, paper_id: int) -> ChatSession:
+def _ensure_default_session(db: Session, paper_id: str) -> ChatSession:
     existing = (
         db.query(ChatSession)
         .filter(ChatSession.paper_id == paper_id)
@@ -275,7 +275,7 @@ def _normalize_topic_key(value: str) -> str:
 async def ask_about_quote(
     question: str = Form(...),
     quote: str = Form(default=""),
-    paper_id: int | None = Form(default=None),
+        paper_id: str | None = Form(default=None),
     session_id: int | None = Form(default=None),
     stream: bool = Form(default=False),
     pdf_file: UploadFile | None = File(default=None),
@@ -420,10 +420,13 @@ async def upload_paper(
 @router.get("/papers")
 def list_papers(
     folder_id: int | None = None,
+    include_all: bool = False,
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict[str, str | int]]]:
     query = db.query(Paper).join(PaperPlacement, PaperPlacement.paper_id == Paper.id, isouter=True)
-    if folder_id is None:
+    if include_all:
+        pass
+    elif folder_id is None:
         query = query.filter(PaperPlacement.folder_id.is_(None))
     else:
         query = query.filter(PaperPlacement.folder_id == folder_id)
@@ -433,7 +436,7 @@ def list_papers(
 
 
 @router.get("/papers/{paper_id}")
-def get_paper(paper_id: int, db: Session = Depends(get_db)) -> dict[str, dict[str, str | int]]:
+def get_paper(paper_id: str, db: Session = Depends(get_db)) -> dict[str, dict[str, str | int]]:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -441,7 +444,7 @@ def get_paper(paper_id: int, db: Session = Depends(get_db)) -> dict[str, dict[st
 
 
 @router.get("/papers/{paper_id}/file")
-def get_paper_file(paper_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def get_paper_file(paper_id: str, db: Session = Depends(get_db)) -> FileResponse:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -543,7 +546,7 @@ def rename_folder(
 
 @router.patch("/papers/{paper_id}/move")
 def move_paper(
-    paper_id: int,
+    paper_id: str,
     target_folder_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, dict[str, str | int]]:
@@ -571,7 +574,7 @@ def move_paper(
 
 
 @router.delete("/papers/{paper_id}")
-def delete_paper(paper_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
+def delete_paper(paper_id: str, db: Session = Depends(get_db)) -> dict[str, int]:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -619,7 +622,7 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, in
 
 @router.get("/papers/{paper_id}/messages")
 def list_paper_messages(
-    paper_id: int,
+    paper_id: str,
     session_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict[str, str | int | None]]]:
@@ -650,7 +653,7 @@ def list_paper_messages(
 
 
 @router.get("/papers/{paper_id}/sessions")
-def list_paper_sessions(paper_id: int, db: Session = Depends(get_db)) -> dict[str, list[dict[str, str | int]]]:
+def list_paper_sessions(paper_id: str, db: Session = Depends(get_db)) -> dict[str, list[dict[str, str | int]]]:
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -668,7 +671,7 @@ def list_paper_sessions(paper_id: int, db: Session = Depends(get_db)) -> dict[st
 
 @router.post("/papers/{paper_id}/sessions")
 def create_paper_session(
-    paper_id: int,
+    paper_id: str,
     name: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, dict[str, str | int]]:
@@ -689,7 +692,7 @@ def create_paper_session(
 
 @router.patch("/papers/{paper_id}/sessions/{session_id}")
 def rename_paper_session(
-    paper_id: int,
+    paper_id: str,
     session_id: int,
     name: str = Form(...),
     db: Session = Depends(get_db),
@@ -720,7 +723,7 @@ def rename_paper_session(
 
 @router.delete("/papers/{paper_id}/sessions/{session_id}")
 def delete_paper_session(
-    paper_id: int,
+    paper_id: str,
     session_id: int,
     db: Session = Depends(get_db),
 ) -> dict[str, int]:
@@ -757,7 +760,7 @@ def delete_paper_session(
 
 @router.get("/papers/{paper_id}/sessions/{session_id}/notes")
 def list_session_notes(
-    paper_id: int,
+    paper_id: str,
     session_id: int,
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict[str, str | int | None]]]:
@@ -784,7 +787,7 @@ def list_session_notes(
 
 @router.post("/papers/{paper_id}/sessions/{session_id}/notes/generate")
 async def generate_notes_for_session(
-    paper_id: int,
+    paper_id: str,
     session_id: int,
     folder_id: int | None = None,
     max_points: int | None = None,
@@ -1018,9 +1021,7 @@ def list_notes(
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict[str, str | int | None]]]:
     query = db.query(Note)
-    if folder_id is None:
-        query = query.filter(Note.folder_id.is_(None))
-    else:
+    if folder_id is not None:
         query = query.filter(Note.folder_id == folder_id)
 
     notes = query.order_by(Note.updated_at.desc(), Note.id.desc()).all()
@@ -1032,7 +1033,7 @@ def create_note(
     title: str = Form(...),
     content: str = Form(default=""),
     folder_id: int | None = Form(default=None),
-    paper_id: int | None = Form(default=None),
+    paper_id: str | None = Form(default=None),
     session_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, dict[str, str | int | None]]:
@@ -1089,7 +1090,7 @@ def update_note(
     note_id: int,
     title: str | None = Form(default=None),
     content: str | None = Form(default=None),
-    paper_id: int | None = Form(default=None),
+    paper_id: str | None = Form(default=None),
     session_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, dict[str, str | int | None]]:
@@ -1106,7 +1107,7 @@ def update_note(
         note.title = next_title
 
     if paper_id is not None:
-        if paper_id == 0:
+        if paper_id == "0":
             note.paper_id = None
         else:
             paper = db.query(Paper).filter(Paper.id == paper_id).first()

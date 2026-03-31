@@ -49,6 +49,9 @@ function NotesLayout({
   const [renamingNoteId, setRenamingNoteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [renameLoading, setRenameLoading] = useState(false)
+  const paperTitleMap = useMemo(() => {
+    return new Map((papers || []).map((paper) => [String(paper.id), paper.title || '未命名论文']))
+  }, [papers])
 
   useEffect(() => {
     setDraftTitle(selectedNote?.title || '')
@@ -67,7 +70,7 @@ function NotesLayout({
       }
 
       try {
-        const nextSessions = await fetchPaperSessions(Number(draftPaperId))
+        const nextSessions = await fetchPaperSessions(draftPaperId)
         setAvailableSessions(nextSessions)
       } catch (error) {
         console.error(error)
@@ -95,7 +98,7 @@ function NotesLayout({
       await onSaveNote(selectedNote.id, {
         title: draftTitle,
         content: draftContent,
-        paperId: draftPaperId ? Number(draftPaperId) : null,
+        paperId: draftPaperId || null,
         sessionId: draftSessionId ? Number(draftSessionId) : null
       })
     } catch (error) {
@@ -169,6 +172,9 @@ function NotesLayout({
                 disabled={!editMode}
               >
                 <option value="">不绑定论文</option>
+                {draftPaperId && !paperTitleMap.has(draftPaperId) ? (
+                  <option value={draftPaperId}>{`(ID: ${draftPaperId})`}</option>
+                ) : null}
                 {papers.map((paper) => (
                   <option key={paper.id} value={paper.id}>
                     #{paper.id} {paper.title}
@@ -284,7 +290,13 @@ function NotesLayout({
                       onDoubleClick={() => startRename(note)}
                     >
                       <div className="note-list-title">{note.title}</div>
-                      <div className="note-list-meta">Paper #{note.paper_id || '-'} | Session #{note.session_id || '-'}</div>
+                      <div className="note-list-meta">
+                        {note.paper_id
+                          ? `Paper ${paperTitleMap.get(String(note.paper_id)) || `(ID: ${note.paper_id})`}`
+                          : '不绑定论文'}
+                        {' | '}
+                        {note.session_id ? `Session #${note.session_id}` : '不绑定会话'}
+                      </div>
                     </button>
                   )}
                   <button
@@ -326,6 +338,9 @@ function NotesLayout({
                     disabled={!editMode}
                   >
                     <option value="">不绑定论文</option>
+                    {draftPaperId && !paperTitleMap.has(draftPaperId) ? (
+                      <option value={draftPaperId}>{`(ID: ${draftPaperId})`}</option>
+                    ) : null}
                     {papers.map((paper) => (
                       <option key={paper.id} value={paper.id}>
                         #{paper.id} {paper.title}

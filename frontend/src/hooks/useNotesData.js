@@ -56,7 +56,7 @@ function useNotesData({ activePaperId, activeSessionId }) {
         const [nextNotes, nextFolders, nextPapers] = await Promise.all([
           fetchNotes(null),
           fetchNoteFolderTree(),
-          fetchPapers(null)
+          fetchPapers(null, { includeAll: true })
         ])
         setNotes(nextNotes)
         setFolders(nextFolders)
@@ -132,7 +132,7 @@ function useNotesData({ activePaperId, activeSessionId }) {
 
   async function refreshPapers() {
     try {
-      const nextPapers = await fetchPapers(null)
+      const nextPapers = await fetchPapers(null, { includeAll: true })
       setPapers(nextPapers)
     } catch (error) {
       console.error(error)

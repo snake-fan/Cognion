@@ -117,8 +117,11 @@ export async function askWithQuote({ question, quote, pdfFile, paperId, sessionI
   return { answer: fullAnswer }
 }
 
-export async function fetchPapers(folderId = null) {
+export async function fetchPapers(folderId = null, { includeAll = false } = {}) {
   const search = new URLSearchParams()
+  if (includeAll) {
+    search.set('include_all', '1')
+  }
   if (folderId !== null && folderId !== undefined) {
     search.set('folder_id', String(folderId))
   }

@@ -86,7 +86,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
 
     try {
       if (dragType === 'paper') {
-        await movePaper(Number(dragId), targetFolderId)
+        await movePaper(dragId, targetFolderId)
         await refreshFolders()
         await refreshPapers(selectedFolderId)
       }
@@ -123,7 +123,7 @@ function useLibraryData({ activeProjectId, onActiveProjectDeleted }) {
 
     try {
       if (dragType === 'paper') {
-        await movePaper(Number(dragId), null)
+        await movePaper(dragId, null)
         await refreshFolders()
         await refreshPapers(selectedFolderId)
       }
