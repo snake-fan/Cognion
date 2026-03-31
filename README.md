@@ -147,17 +147,22 @@ Cognion 想做的，就是帮助这个过程发生。
 
 ### 前端
 
-- 文献库支持多层级文件夹树，搭建完成文件系统
-- 阅读区支持 PDF 渲染、缩放、文本引用、LLM 对话
-- 右侧 AI 对话区支持 Markdown / 数学公式 / 代码高亮渲染
+- 文献库支持多层级文件夹树，支持文件夹/论文的创建、重命名、删除与移动
+- 阅读区支持 PDF 渲染、缩放、页码导航、文本选择与引用
+- AI 对话支持流式回复、引用上下文问答、多会话创建/重命名/删除
+- 右侧对话区支持 Markdown / 数学公式 / 代码高亮渲染
+- 笔记区支持笔记 CRUD、笔记文件夹树与关联论文/会话管理
 
 ### 后端
 
 - 上传 PDF 后保存文件并入库论文元信息
 - 论文元信息持久化到 PostgreSQL（标题、作者、期刊、摘要等）
 - 论文与目录关系持久化（支持移动后同步文件路径）
-- 论文问答消息按 `paper_id` 持久化并可回放
 - 文件夹树接口返回层级结构与“是否含论文”聚合状态
+- 对话消息按 `paper_id` + `session_id` 持久化并可回放，支持会话 CRUD
+- LLM 问答支持流式返回，并支持引用片段上下文
+- 笔记模块支持笔记 CRUD、笔记文件夹树、关联论文/会话
+- 支持从会话中自动提炼并生成主题笔记
 
 ## 环境要求
 
@@ -296,8 +301,8 @@ ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 
 ```bash
 cd backend
-source .venv/bin/activate
-python test/test_oss_mineru.py
+uv sync
+uv run python test/test_oss_mineru.py
 ```
 
 如果成功，日志会看到：
@@ -320,11 +325,9 @@ python test/test_oss_mineru.py
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 后端地址：`http://127.0.0.1:8000`
@@ -339,24 +342,9 @@ npm run dev
 
 前端地址：`http://127.0.0.1:5173`
 
-## 主要 API（当前）
-
-- `POST /api/papers/upload` 上传论文
-- `GET /api/papers` 按目录查询论文
-- `GET /api/papers/{paper_id}/file` 下载论文文件
-- `PATCH /api/papers/{paper_id}/move` 移动论文目录
-- `DELETE /api/papers/{paper_id}` 删除论文
-- `GET /api/papers/{paper_id}/messages` 获取论文聊天历史
-- `GET /api/folders/tree` 获取目录树
-- `POST /api/folders` 创建文件夹
-- `PATCH /api/folders/{folder_id}/move` 移动文件夹
-- `PATCH /api/folders/{folder_id}/rename` 重命名文件夹
-- `DELETE /api/folders/{folder_id}` 删除文件夹
-- `POST /api/ask` 引用问答
-
 ## 项目 TODO List
 
-- [ ]  添加对话 session 模块
-- [ ]  考虑如何插入思路引导
-- [ ]  笔记卡片生成设计
+- [x]  添加对话 session 模块
+- [x]  考虑如何插入思路引导
+- [x]  笔记卡片生成设计
 - [ ]  知识图谱生成的机制设计
