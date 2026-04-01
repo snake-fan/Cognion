@@ -282,19 +282,19 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     }
   }
 
-  async function openUploadedPaper(file, paperId) {
+  async function openUploadedPaper(file, paperId, preferredSessionId = null) {
     setActiveProjectId(paperId)
     clearReaderState({ clearPdf: false })
     loadPdfToWorkspace(file)
-    await hydrateSessionsAndMessages(paperId)
+    await hydrateSessionsAndMessages(paperId, preferredSessionId)
   }
 
-  async function openExistingPaper(paperId, originalFilename = 'paper.pdf') {
+  async function openExistingPaper(paperId, originalFilename = 'paper.pdf', preferredSessionId = null) {
     setActiveProjectId(paperId)
     clearReaderState({ clearPdf: true })
 
     const pdfBlob = await fetchPaperFile(paperId)
-    await hydrateSessionsAndMessages(paperId)
+    await hydrateSessionsAndMessages(paperId, preferredSessionId)
 
     const restoredFile = new File([pdfBlob], originalFilename, {
       type: 'application/pdf'
@@ -422,6 +422,11 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     } finally {
       setSessionLoading(false)
     }
+  }
+
+  async function openPaperSession(paperId, sessionId, originalFilename = 'paper.pdf') {
+    await openExistingPaper(paperId, originalFilename, sessionId)
+    setSessionPanelMode('note')
   }
 
   async function onCreateSession() {
@@ -700,6 +705,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     onAsk,
     openUploadedPaper,
     openExistingPaper,
+    openPaperSession,
     onActiveProjectDeleted
   }
 }

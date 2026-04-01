@@ -224,10 +224,16 @@ VALID_USER_STATES = {"mentioned", "exposed", "confused", "partial_understanding"
 VALID_SIGNAL_TYPES = {"understanding", "question", "confusion", "misconception", "distinction", "boundary_awareness"}
 VALID_NODE_TYPES = {"Concept", "Claim", "Method", "Question"}
 VALID_EDGE_RELATIONS = {"RELATED_TO", "EXPLAINS", "CONTRASTS_WITH", "PREREQUISITE_OF", "RAISES", "SUPPORTS"}
+UNDIRECTED_EDGE_RELATIONS = {"RELATED_TO", "CONTRASTS_WITH"}
 
 
 def _to_clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _normalize_edge_name(value: object) -> str:
+    normalized = re.sub(r"\s+", " ", _to_clean_text(value).lower())
+    return normalized
 
 
 def _to_string_list(value: object) -> list[str]:
@@ -322,6 +328,7 @@ def _normalize_graph_suggestions(value: object) -> dict[str, list[dict[str, str]
         return {"nodes": [], "edges": []}
 
     nodes: list[dict[str, str]] = []
+    seen_node_keys: set[str] = set()
     raw_nodes = value.get("nodes")
     if isinstance(raw_nodes, list):
         for item in raw_nodes:
@@ -333,9 +340,14 @@ def _normalize_graph_suggestions(value: object) -> dict[str, list[dict[str, str]
                 continue
             if node_type not in VALID_NODE_TYPES:
                 node_type = "Question" if "?" in name or "？" in name else "Concept"
+            node_key = f"{node_type}:{_normalize_edge_name(name)}"
+            if node_key in seen_node_keys:
+                continue
+            seen_node_keys.add(node_key)
             nodes.append({"node_type": node_type, "name": name})
 
     edges: list[dict[str, str]] = []
+    seen_edge_keys: set[str] = set()
     raw_edges = value.get("edges")
     if isinstance(raw_edges, list):
         for item in raw_edges:
@@ -348,7 +360,15 @@ def _normalize_graph_suggestions(value: object) -> dict[str, list[dict[str, str]
                 continue
             if relation not in VALID_EDGE_RELATIONS:
                 relation = "RELATED_TO"
-            edges.append({"from": from_name, "relation": relation, "to": to_name})
+            if relation in UNDIRECTED_EDGE_RELATIONS:
+                left_name, right_name = sorted([from_name, to_name], key=_normalize_edge_name)
+            else:
+                left_name, right_name = from_name, to_name
+            edge_key = f"{relation}:{_normalize_edge_name(left_name)}:{_normalize_edge_name(right_name)}"
+            if edge_key in seen_edge_keys:
+                continue
+            seen_edge_keys.add(edge_key)
+            edges.append({"from": left_name, "relation": relation, "to": right_name})
 
     return {"nodes": nodes, "edges": edges}
 

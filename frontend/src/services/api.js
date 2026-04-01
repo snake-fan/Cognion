@@ -477,6 +477,15 @@ export async function fetchNotes(folderId = null) {
   return payload.notes || []
 }
 
+export async function fetchKnowledgeGraph() {
+  const response = await fetch(`${API_BASE}/knowledge-graph`)
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
 export async function createNote({ title, content = '', folderId = null, paperId = null, sessionId = null }) {
   const formData = new FormData()
   formData.append('title', title)

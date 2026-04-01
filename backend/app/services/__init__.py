@@ -5,6 +5,7 @@ from .config import (
     MINERU_API_URL,
     MINERU_ENABLED,
 )
+from .knowledge_graph import sync_note_to_knowledge_graph
 from .llm import answer_with_context, answer_with_context_stream, extract_paper_metadata, generate_notes_from_session
 from .mineru import call_mineru_api_with_pdf_url, upload_pdf_to_aliyun_oss
 from .note_storage import (
@@ -21,6 +22,7 @@ __all__ = [
     "ALIYUN_OSS_ENDPOINT",
     "MINERU_API_URL",
     "MINERU_ENABLED",
+    "sync_note_to_knowledge_graph",
     "answer_with_context",
     "answer_with_context_stream",
     "extract_paper_metadata",

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -108,3 +108,100 @@ class Note(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class KnowledgeUnit(Base):
+    __tablename__ = "knowledge_units"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    canonical_key: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
+    unit_type: Mapped[str] = mapped_column(String(32), nullable=False, default="concept")
+    term: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    core_claim: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    aliases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    semantic_fingerprint: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class KnowledgeGraphNode(Base):
+    __tablename__ = "knowledge_graph_nodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="Concept")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
+    aliases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class KnowledgeGraphEdge(Base):
+    __tablename__ = "knowledge_graph_edges"
+    __table_args__ = (
+        UniqueConstraint("from_node_id", "relation", "to_node_id", name="uq_knowledge_graph_edges"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    from_node_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    relation: Mapped[str] = mapped_column(String(64), nullable=False)
+    to_node_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class KnowledgeUnitNoteLink(Base):
+    __tablename__ = "knowledge_unit_note_links"
+    __table_args__ = (
+        UniqueConstraint("knowledge_unit_id", "note_id", name="uq_knowledge_unit_note_links"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    knowledge_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_units.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    note_id: Mapped[int] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class KnowledgeUnitNodeLink(Base):
+    __tablename__ = "knowledge_unit_node_links"
+    __table_args__ = (
+        UniqueConstraint("knowledge_unit_id", "node_id", name="uq_knowledge_unit_node_links"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    knowledge_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_units.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

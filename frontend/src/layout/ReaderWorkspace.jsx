@@ -31,6 +31,7 @@ function ReaderWorkspace({
   currentSessionId,
   sessionPanelMode,
   sessionNotes,
+  focusedSessionNoteId,
   noteGenLoading,
   setSessionPanelMode,
   onGenerateSessionNotes,
@@ -56,6 +57,7 @@ function ReaderWorkspace({
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState(null)
   const [deletePopoverPosition, setDeletePopoverPosition] = useState(null)
   const deletePopoverRef = useRef(null)
+  const sessionNoteItemRefs = useRef(new Map())
 
   useEffect(() => {
     if (sessionPanelMode !== 'list') {
@@ -138,6 +140,17 @@ function ReaderWorkspace({
     }
     return plain.length > 88 ? `${plain.slice(0, 88)}...` : plain
   }
+
+  useEffect(() => {
+    if (!focusedSessionNoteId || sessionPanelMode !== 'note') {
+      return
+    }
+    const element = sessionNoteItemRefs.current.get(focusedSessionNoteId)
+    if (!element) {
+      return
+    }
+    element.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [focusedSessionNoteId, sessionNotes, sessionPanelMode])
 
   return (
     <WorkspaceLayout
@@ -336,7 +349,17 @@ function ReaderWorkspace({
                 ) : (
                   <div className="session-note-list">
                     {sessionNotes.map((note) => (
-                      <article key={note.id} className="session-note-card">
+                      <article
+                        key={note.id}
+                        ref={(element) => {
+                          if (!element) {
+                            sessionNoteItemRefs.current.delete(note.id)
+                            return
+                          }
+                          sessionNoteItemRefs.current.set(note.id, element)
+                        }}
+                        className={`session-note-card ${focusedSessionNoteId === note.id ? 'focused' : ''}`}
+                      >
                         <h4>{note.title}</h4>
                         <p>{getNotePreview(note.content)}</p>
                         <span>{formatSessionTime(note.updated_at)}</span>

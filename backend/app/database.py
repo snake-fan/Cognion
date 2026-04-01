@@ -31,7 +31,6 @@ engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
 
-
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
@@ -41,7 +40,20 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_database() -> None:
-    from .models import ChatMessage, ChatSession, Folder, Note, NoteFolder, Paper, PaperPlacement
+    from .models import (
+        ChatMessage,
+        ChatSession,
+        Folder,
+        KnowledgeGraphEdge,
+        KnowledgeGraphNode,
+        KnowledgeUnit,
+        KnowledgeUnitNodeLink,
+        KnowledgeUnitNoteLink,
+        Note,
+        NoteFolder,
+        Paper,
+        PaperPlacement,
+    )
 
     Base.metadata.create_all(
         bind=engine,
@@ -53,6 +65,11 @@ def init_database() -> None:
             PaperPlacement.__table__,
             NoteFolder.__table__,
             Note.__table__,
+            KnowledgeUnit.__table__,
+            KnowledgeGraphNode.__table__,
+            KnowledgeGraphEdge.__table__,
+            KnowledgeUnitNoteLink.__table__,
+            KnowledgeUnitNodeLink.__table__,
         ],
     )
 
@@ -72,7 +89,6 @@ def init_database() -> None:
             )
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_messages_session_id ON chat_messages (session_id)"))
 
-        # Backfill legacy rows into one default session per paper so historical chats remain visible.
         rows = connection.execute(
             text(
                 "SELECT DISTINCT paper_id "
@@ -126,3 +142,35 @@ def init_database() -> None:
         connection.execute(text("UPDATE notes SET topic_key = '' WHERE topic_key IS NULL"))
         connection.execute(text("UPDATE notes SET summary = '' WHERE summary IS NULL"))
         connection.execute(text("UPDATE notes SET structured_data = '{}'::json WHERE structured_data IS NULL"))
+
+        connection.execute(
+            text(
+                "ALTER TABLE knowledge_graph_edges "
+                "DROP CONSTRAINT IF EXISTS uq_knowledge_graph_edges"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE knowledge_graph_edges "
+                "SET from_node_id = LEAST(from_node_id, to_node_id), "
+                "to_node_id = GREATEST(from_node_id, to_node_id) "
+                "WHERE relation IN ('RELATED_TO', 'CONTRASTS_WITH') "
+                "AND from_node_id > to_node_id"
+            )
+        )
+        connection.execute(
+            text(
+                "DELETE FROM knowledge_graph_edges duplicate "
+                "USING knowledge_graph_edges keeper "
+                "WHERE duplicate.id > keeper.id "
+                "AND duplicate.relation = keeper.relation "
+                "AND duplicate.from_node_id = keeper.from_node_id "
+                "AND duplicate.to_node_id = keeper.to_node_id"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE knowledge_graph_edges "
+                "ADD CONSTRAINT uq_knowledge_graph_edges UNIQUE (from_node_id, relation, to_node_id)"
+            )
+        )

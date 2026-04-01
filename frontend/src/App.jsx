@@ -2,6 +2,7 @@ import { Suspense, lazy, useState } from 'react'
 import cognionLogo from './assets/cognion_logo_light.png'
 import SidebarNav from './components/SidebarNav'
 import useLibraryData from './hooks/useLibraryData'
+import useKnowledgeGraphData from './hooks/useKnowledgeGraphData'
 import useNotesData from './hooks/useNotesData'
 import useReaderWorkspace from './hooks/useReaderWorkspace'
 import { uploadPaper } from './services/api'
@@ -9,7 +10,7 @@ import { uploadPaper } from './services/api'
 const PRIMARY_NAV_ITEMS = [
   { key: 'library', label: '文献库', enabled: true },
   { key: 'notes', label: '笔记', enabled: true },
-  { key: 'knowledge', label: '知识库（预留）', enabled: false },
+  { key: 'knowledge', label: '知识图谱', enabled: true },
 ]
 
 const NAV_ICONS = {
@@ -52,12 +53,14 @@ const NAV_ICONS = {
 const HomeLayout = lazy(() => import('./layout/HomeLayout'))
 const LibraryLayout = lazy(() => import('./layout/LibraryLayout'))
 const NotesLayout = lazy(() => import('./layout/NotesLayout'))
+const KnowledgeGraphLayout = lazy(() => import('./layout/KnowledgeGraphLayout'))
 const WorkspaceLayout = lazy(() => import('./layout/WorkspaceLayout'))
 const ReaderWorkspace = lazy(() => import('./layout/ReaderWorkspace'))
 
 function App() {
   const [viewMode, setViewMode] = useState('home')
   const [activeProjectId, setActiveProjectId] = useState(null)
+  const [focusedSessionNoteId, setFocusedSessionNoteId] = useState(null)
 
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const {
@@ -102,6 +105,7 @@ function App() {
     onAsk,
     openUploadedPaper,
     openExistingPaper,
+    openPaperSession,
     onActiveProjectDeleted
   } = useReaderWorkspace({
     activeProjectId,
@@ -159,6 +163,7 @@ function App() {
     setFolderCreateName: setNoteFolderCreateName,
     onSelectFolder: onSelectNoteFolder,
     onSelectNote,
+    openNoteById,
     onCreateNote,
     onSaveNote,
     onRenameNote,
@@ -178,6 +183,38 @@ function App() {
     activePaperId: activeProjectId,
     activeSessionId: currentSessionId
   })
+
+  const {
+    loading: knowledgeLoading,
+    query: knowledgeQuery,
+    setQuery: setKnowledgeQuery,
+    selectedPaperId: knowledgePaperFilter,
+    setSelectedPaperId: setKnowledgePaperFilter,
+    selectedSessionId: knowledgeSessionFilter,
+    setSelectedSessionId: setKnowledgeSessionFilter,
+    selectedNodeType: knowledgeNodeTypeFilter,
+    setSelectedNodeType: setKnowledgeNodeTypeFilter,
+    focusNeighborsOnly,
+    setFocusNeighborsOnly,
+    expansionDepth: knowledgeExpansionDepth,
+    setExpansionDepth: setKnowledgeExpansionDepth,
+    sortMode: knowledgeSortMode,
+    setSortMode: setKnowledgeSortMode,
+    nodeTypeOptions: knowledgeNodeTypeOptions,
+    nodes: knowledgeNodes,
+    edges: knowledgeEdges,
+    selectedNode: selectedKnowledgeNode,
+    selectedKnowledgeUnits,
+    relatedNotes: knowledgeNotes,
+    neighboringNodes: knowledgeNeighboringNodes,
+    paperMap: knowledgePaperMap,
+    sessionMap: knowledgeSessionMap,
+    positions: knowledgePositions,
+    neighborNodeIds,
+    moveNode: moveKnowledgeNode,
+    resetLayout: resetKnowledgeLayout,
+    onSelectNode: onSelectKnowledgeNode
+  } = useKnowledgeGraphData()
 
   async function onLibraryUpload(file) {
     setLibraryLoading(true)
@@ -205,6 +242,10 @@ function App() {
 
     if (itemKey === 'notes') {
       setViewMode('notes')
+    }
+
+    if (itemKey === 'knowledge') {
+      setViewMode('knowledge')
     }
   }
 
@@ -335,6 +376,64 @@ function App() {
     )
   }
 
+  if (viewMode === 'knowledge') {
+    return (
+      <Suspense fallback={<div className="empty-state">加载中...</div>}>
+        <WorkspaceLayout
+          isResizing={false}
+          showRightSidebar={false}
+          leftSidebar={leftSidebar}
+          centerContent={
+            <KnowledgeGraphLayout
+              loading={knowledgeLoading}
+              query={knowledgeQuery}
+              onQueryChange={setKnowledgeQuery}
+              selectedPaperId={knowledgePaperFilter}
+              onPaperFilterChange={setKnowledgePaperFilter}
+              selectedSessionId={knowledgeSessionFilter}
+              onSessionFilterChange={setKnowledgeSessionFilter}
+              selectedNodeType={knowledgeNodeTypeFilter}
+              onNodeTypeFilterChange={setKnowledgeNodeTypeFilter}
+              focusNeighborsOnly={focusNeighborsOnly}
+              onFocusNeighborsToggle={setFocusNeighborsOnly}
+              expansionDepth={knowledgeExpansionDepth}
+              onExpansionDepthChange={setKnowledgeExpansionDepth}
+              sortMode={knowledgeSortMode}
+              onSortModeChange={setKnowledgeSortMode}
+              nodeTypeOptions={knowledgeNodeTypeOptions}
+              nodes={knowledgeNodes}
+              edges={knowledgeEdges}
+              positions={knowledgePositions}
+              selectedNode={selectedKnowledgeNode}
+              selectedKnowledgeUnits={selectedKnowledgeUnits}
+              relatedNotes={knowledgeNotes}
+              neighboringNodes={knowledgeNeighboringNodes}
+              paperMap={knowledgePaperMap}
+              sessionMap={knowledgeSessionMap}
+              neighborNodeIds={neighborNodeIds}
+              onSelectNode={onSelectKnowledgeNode}
+              onMoveNode={moveKnowledgeNode}
+              onResetLayout={resetKnowledgeLayout}
+              onOpenNote={async (noteId) => {
+                setViewMode('notes')
+                await openNoteById(noteId)
+              }}
+              onOpenSession={async (note) => {
+                if (!note?.paper_id || !note?.session_id) {
+                  return
+                }
+                setFocusedSessionNoteId(note.id)
+                setViewMode('workspace')
+                const paper = knowledgePaperMap.get(note.paper_id)
+                await openPaperSession(note.paper_id, note.session_id, paper?.original_filename || 'paper.pdf')
+              }}
+            />
+          }
+        />
+      </Suspense>
+    )
+  }
+
   const activeProject = projects.find((project) => project.id === activeProjectId)
 
   return (
@@ -362,6 +461,7 @@ function App() {
         currentSessionId={currentSessionId}
         sessionPanelMode={sessionPanelMode}
         sessionNotes={sessionNotes}
+        focusedSessionNoteId={focusedSessionNoteId}
         noteGenLoading={noteGenLoading}
         setSessionPanelMode={setSessionPanelMode}
         onGenerateSessionNotes={onGenerateSessionNotes}

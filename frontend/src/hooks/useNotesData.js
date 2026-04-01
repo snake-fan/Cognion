@@ -148,6 +148,17 @@ function useNotesData({ activePaperId, activeSessionId }) {
     setSelectedNoteId(noteId)
   }
 
+  async function openNoteById(noteId) {
+    const targetId = Number(noteId)
+    if (!Number.isFinite(targetId)) {
+      return
+    }
+
+    setSelectedFolderId(null)
+    await refreshNotes(null)
+    setSelectedNoteId(targetId)
+  }
+
   async function onCreateNote() {
     const fallbackPaperId = activePaperId ?? null
     const fallbackSessionId = activeSessionId ?? null
@@ -409,6 +420,7 @@ function useNotesData({ activePaperId, activeSessionId }) {
     setFolderCreateName,
     onSelectFolder,
     onSelectNote,
+    openNoteById,
     onCreateNote,
     onSaveNote,
     onRenameNote,
