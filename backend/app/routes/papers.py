@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import ChatMessage, ChatSession, Folder, Paper, PaperPlacement
+from ..db import ChatMessage, ChatSession, Folder, Paper, PaperPlacement, get_db
 from ..services import extract_paper_metadata, move_pdf_file_to_segments, persist_uploaded_pdf
 from .common import (
     build_folder_tree,

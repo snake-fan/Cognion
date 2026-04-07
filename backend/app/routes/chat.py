@@ -5,8 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import ChatMessage, ChatSession, Paper
+from ..db import ChatMessage, ChatSession, Paper, get_db
 from ..services import answer_with_context, answer_with_context_stream
 from .common import ensure_default_session
 

@@ -4,8 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import ChatMessage, ChatSession, Note, NoteFolder, Paper
+from ..db import ChatMessage, ChatSession, Note, NoteFolder, Paper, get_db
 from ..services import (
     generate_notes_from_session,
     move_note_file_to_segments,

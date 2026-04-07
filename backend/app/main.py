@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import init_database
+from .db import init_database
 from .routes import router
 
 app = FastAPI(title="Cognion API", version="0.1.0")

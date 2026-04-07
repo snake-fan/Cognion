@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import (
+from ..db import (
     ChatSession,
     KnowledgeGraphEdge,
     KnowledgeGraphNode,
@@ -11,6 +10,7 @@ from ..models import (
     KnowledgeUnitNoteLink,
     Note,
     Paper,
+    get_db,
 )
 from .common import (
     knowledge_graph_edge_to_dict,

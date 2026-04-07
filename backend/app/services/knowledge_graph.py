@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 
 from sqlalchemy.orm import Session
 
-from ..models import (
+from ..db import (
     KnowledgeGraphEdge,
     KnowledgeGraphNode,
     KnowledgeUnit,
