@@ -10,7 +10,7 @@ from typing import Any
 
 from openai import APITimeoutError, AsyncOpenAI, RateLimitError
 
-from ..config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
+from ..services.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
 from .schemas import LLMInvocationLog, ModelCallParams, ModelInvocationResult, ModelMessage, TokenUsage
 
 

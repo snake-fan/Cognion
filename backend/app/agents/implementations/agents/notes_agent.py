@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ...base import BaseAgent
+from ...core.base import BaseAgent
 from ...parsers import parse_session_notes
 from ...schemas import ParseResult
 from ...state import AgentState, build_messages

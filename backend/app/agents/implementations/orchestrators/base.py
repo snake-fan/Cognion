@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .typing import AgentMap
-from ...base import BaseAgent
+from ...core.base import BaseAgent
 from ...model_adapter import OpenAIModelAdapter, default_log_sink
 from ...state import AgentState
 

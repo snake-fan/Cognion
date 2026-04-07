@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from uuid import uuid4
 
-from ....mineru import extract_pdf_context_for_qa
-from ....pdf_storage import extract_pdf_text
+from ....services.mineru import extract_pdf_context_for_qa
+from ....services.pdf_storage import extract_pdf_text
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ...parsers import parse_metadata
 from ...schemas import ModelCallParams

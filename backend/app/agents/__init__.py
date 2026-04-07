@@ -1,4 +1,4 @@
-from .base import BaseAgent
+from .core.base import BaseAgent
 from .implementations.agents.notes_agent import NotesAgent
 from .implementations.agents.qa_agent import QAAgent
 

@@ -4,9 +4,9 @@ from abc import ABC, abstractmethod
 from time import perf_counter
 from typing import Any
 
-from .model_adapter import ModelAdapterError, OpenAIModelAdapter
-from .schemas import AgentExecutionLog, ModelCallParams, ParseResult
-from .state import AgentState
+from ..model_adapter import ModelAdapterError, OpenAIModelAdapter
+from ..schemas import AgentExecutionLog, ModelCallParams, ParseResult
+from ..state import AgentState
 
 
 class BaseAgent(ABC):

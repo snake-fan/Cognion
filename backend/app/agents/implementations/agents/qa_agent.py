@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from ...base import BaseAgent
+from ...core.base import BaseAgent
 from ...parsers import parse_qa
 from ...schemas import ModelCallParams, ParseResult
 from ...state import AgentState, build_messages
