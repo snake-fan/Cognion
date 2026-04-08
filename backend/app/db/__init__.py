@@ -1,4 +1,4 @@
-from .bootstrap import init_database
+from .startup import init_database
 from .models import (
     ChatMessage,
     ChatSession,
