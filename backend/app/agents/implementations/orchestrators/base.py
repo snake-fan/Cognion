@@ -3,7 +3,7 @@ from __future__ import annotations
 from .typing import AgentMap
 from ...core.base import BaseAgent
 from ...model_adapter import OpenAIModelAdapter, default_log_sink
-from ...state import AgentState
+from ...state import BaseAgentState
 
 
 class BaseOrchestrator:
@@ -20,7 +20,7 @@ class BaseOrchestrator:
             raise KeyError(f"Agent not registered: {name}")
         return agent
 
-    async def run_steps(self, state: AgentState, steps: list[str]) -> AgentState:
+    async def run_steps(self, state: BaseAgentState, steps: list[str]) -> BaseAgentState:
         for step in steps:
             agent = self.get_agent(step)
             await agent.run(state)

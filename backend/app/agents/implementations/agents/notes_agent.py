@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from ...core.base import BaseAgent
-from ...parsers import parse_session_notes
+from ...parsers import parse_structured_notes
 from ...schemas import ParseResult
-from ...state import AgentState, build_messages
+from ...state import NotesAgentState, build_messages
 from ..templates.session_notes import build_session_notes_system_template, build_session_notes_user_template
 
 
@@ -21,13 +21,13 @@ def _build_session_messages_block(messages: list[dict[str, str]]) -> str:
 
 
 class NotesAgent(BaseAgent):
-    name = "notes_agent"
+    name = "note_agent"
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._active_max_points: int | None = None
 
-    def build_messages(self, state: AgentState):
+    def build_messages(self, state: NotesAgentState):
         existing_topic_keys = state.retrieval_context.get("existing_topic_keys")
         existing_keys_text = "\n".join(
             f"- {key}" for key in existing_topic_keys if isinstance(key, str) and key.strip()
@@ -50,13 +50,13 @@ class NotesAgent(BaseAgent):
 
     def parse_response(self, raw_text: str) -> ParseResult:
         max_points = self._active_max_points
-        return parse_session_notes(raw_text, max_points=max_points)
+        return parse_structured_notes(raw_text, max_points=max_points)
 
-    def apply_result(self, state: AgentState, parsed: ParseResult) -> None:
+    def apply_result(self, state: NotesAgentState, parsed: ParseResult) -> None:
         notes = []
         if isinstance(parsed.data, list):
+            state.notes = list(parsed.data)
             notes = [note.model_dump(by_alias=True) for note in parsed.data]
         state.set_agent_output(self.name, {"notes": notes, "fallback_used": parsed.fallback_used})
-        state.final_result = notes
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)

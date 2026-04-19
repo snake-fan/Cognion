@@ -42,20 +42,20 @@ class UserSignalType(str, Enum):
     BOUNDARY_AWARENESS = "boundary_awareness"
 
 
-class GraphNodeType(str, Enum):
-    CONCEPT = "Concept"
-    CLAIM = "Claim"
-    METHOD = "Method"
-    QUESTION = "Question"
+class CanonicalizationAction(str, Enum):
+    MERGE = "merge"
+    REUSE = "reuse"
+    CREATE_NEW = "create_new"
+    SOFT_LINK = "soft_link"
 
 
-class GraphEdgeRelation(str, Enum):
-    RELATED_TO = "RELATED_TO"
-    EXPLAINS = "EXPLAINS"
-    CONTRASTS_WITH = "CONTRASTS_WITH"
-    PREREQUISITE_OF = "PREREQUISITE_OF"
-    RAISES = "RAISES"
-    SUPPORTS = "SUPPORTS"
+class RelationType(str, Enum):
+    ASKS_ABOUT = "asks_about"
+    RELATED_TO = "related_to"
+    CONFUSED_WITH = "confused_with"
+    PREREQUISITE_OF = "prerequisite_of"
+    USED_FOR = "used_for"
+    SAME_AS = "same_as"
 
 
 class ModelMessage(BaseModel):
@@ -170,27 +170,6 @@ class UserModelSignal(BaseModel):
     signals: list[UserSignal] = Field(default_factory=list)
 
 
-class EvidenceItem(BaseModel):
-    source: Literal["user", "assistant"]
-    quote: str
-
-
-class GraphNodeSuggestion(BaseModel):
-    node_type: GraphNodeType
-    name: str
-
-
-class GraphEdgeSuggestion(BaseModel):
-    from_: str = Field(alias="from")
-    relation: GraphEdgeRelation
-    to: str
-
-
-class GraphSuggestions(BaseModel):
-    nodes: list[GraphNodeSuggestion] = Field(default_factory=list)
-    edges: list[GraphEdgeSuggestion] = Field(default_factory=list)
-
-
 class DedupeHints(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     semantic_fingerprint: list[str] = Field(default_factory=list)
@@ -204,11 +183,133 @@ class SessionNote(BaseModel):
     content: str
     knowledge_unit: KnowledgeUnit
     user_model_signal: UserModelSignal
-    evidence: list[EvidenceItem] = Field(default_factory=list)
-    graph_suggestions: GraphSuggestions = Field(default_factory=GraphSuggestions)
     open_questions: list[str] = Field(default_factory=list)
     dedupe_hints: DedupeHints = Field(default_factory=DedupeHints)
 
 
 class SessionNotesPayload(BaseModel):
     notes: list[SessionNote] = Field(default_factory=list)
+
+
+class UnitRelationCandidate(BaseModel):
+    target_unit_ref: str
+    relation_type: RelationType
+
+
+class StructuredNote(BaseModel):
+    note_id: str
+    title: str
+    topic_key: str
+    summary: str
+    content: str
+    knowledge_unit: KnowledgeUnit
+    user_model_signal: UserModelSignal
+    open_questions: list[str] = Field(default_factory=list)
+    dedupe_hints: DedupeHints = Field(default_factory=DedupeHints)
+
+
+class StructuredNotesPayload(BaseModel):
+    notes: list[StructuredNote] = Field(default_factory=list)
+
+
+class ExtractedUnit(BaseModel):
+    unit_id: str
+    source_note_id: str
+    type: UnitType
+    canonical_name: str
+    aliases: list[str] = Field(default_factory=list)
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    slots: dict[str, Any] = Field(default_factory=dict)
+    local_relations: list[UnitRelationCandidate] = Field(default_factory=list)
+
+
+class ExtractedUnitsPayload(BaseModel):
+    units: list[ExtractedUnit] = Field(default_factory=list)
+
+
+class RetrievedUnitCandidate(BaseModel):
+    knowledge_unit_id: int | None = None
+    canonical_key: str = ""
+    unit_type: str = "concept"
+    term: str = ""
+    core_claim: str = ""
+    summary: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    semantic_fingerprint: list[str] = Field(default_factory=list)
+    score: float = 0.0
+    source: str = "global"
+
+
+class CanonicalDecision(BaseModel):
+    source_unit_id: str
+    action: CanonicalizationAction
+    target_unit_id: int | None = None
+    target_canonical_key: str | None = None
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class CanonicalDecisionsPayload(BaseModel):
+    decisions: list[CanonicalDecision] = Field(default_factory=list)
+
+
+class RelationDecision(BaseModel):
+    from_unit_ref: str
+    relation_type: RelationType
+    to_unit_ref: str
+    confidence: float = 0.0
+
+
+class RelationDecisionsPayload(BaseModel):
+    relations: list[RelationDecision] = Field(default_factory=list)
+
+
+class GraphPatchNoteRef(BaseModel):
+    note_id: str
+    topic_key: str = ""
+
+
+class GraphPatchUnitOp(BaseModel):
+    note_id: str
+    source_unit_id: str
+    action: CanonicalizationAction
+    target_unit_id: int | None = None
+    target_canonical_key: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphPatchRelationOp(BaseModel):
+    note_id: str
+    from_unit_ref: str
+    relation_type: RelationType
+    to_unit_ref: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentDecisionLog(BaseModel):
+    agent_name: str
+    note_id: str | None = None
+    decision_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphPatch(BaseModel):
+    notes_to_create: list[GraphPatchNoteRef] = Field(default_factory=list)
+    notes_to_update: list[GraphPatchNoteRef] = Field(default_factory=list)
+    units_to_create: list[GraphPatchUnitOp] = Field(default_factory=list)
+    units_to_update: list[GraphPatchUnitOp] = Field(default_factory=list)
+    units_to_merge: list[GraphPatchUnitOp] = Field(default_factory=list)
+    units_to_link: list[GraphPatchUnitOp] = Field(default_factory=list)
+    relations_to_create: list[GraphPatchRelationOp] = Field(default_factory=list)
+    relations_to_update: list[GraphPatchRelationOp] = Field(default_factory=list)
+    provenance_entries: list[AgentDecisionLog] = Field(default_factory=list)
+
+
+class SessionNotesPipelineResult(BaseModel):
+    notes: list[StructuredNote] = Field(default_factory=list)
+    note_units: dict[str, list[ExtractedUnit]] = Field(default_factory=dict)
+    canonicalization_decisions: dict[str, list[CanonicalDecision]] = Field(default_factory=dict)
+    relation_decisions: dict[str, list[RelationDecision]] = Field(default_factory=dict)
+    graph_patch: GraphPatch = Field(default_factory=GraphPatch)
+    provenance_log: list[AgentDecisionLog] = Field(default_factory=list)

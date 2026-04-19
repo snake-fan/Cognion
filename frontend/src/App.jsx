@@ -192,29 +192,31 @@ function App() {
     setSelectedPaperId: setKnowledgePaperFilter,
     selectedSessionId: knowledgeSessionFilter,
     setSelectedSessionId: setKnowledgeSessionFilter,
-    selectedNodeType: knowledgeNodeTypeFilter,
-    setSelectedNodeType: setKnowledgeNodeTypeFilter,
+    selectedUnitType: knowledgeUnitTypeFilter,
+    setSelectedUnitType: setKnowledgeUnitTypeFilter,
     focusNeighborsOnly,
     setFocusNeighborsOnly,
     expansionDepth: knowledgeExpansionDepth,
     setExpansionDepth: setKnowledgeExpansionDepth,
     sortMode: knowledgeSortMode,
     setSortMode: setKnowledgeSortMode,
-    nodeTypeOptions: knowledgeNodeTypeOptions,
-    nodes: knowledgeNodes,
+    unitTypeOptions: knowledgeUnitTypeOptions,
+    units: knowledgeUnits,
     edges: knowledgeEdges,
-    selectedNode: selectedKnowledgeNode,
-    selectedKnowledgeUnits,
+    selectedUnit: selectedKnowledgeUnit,
     relatedNotes: knowledgeNotes,
-    neighboringNodes: knowledgeNeighboringNodes,
+    neighboringUnits: knowledgeNeighboringUnits,
     paperMap: knowledgePaperMap,
     sessionMap: knowledgeSessionMap,
     positions: knowledgePositions,
-    neighborNodeIds,
-    moveNode: moveKnowledgeNode,
+    neighborUnitIds,
+    moveUnit: moveKnowledgeUnit,
     resetLayout: resetKnowledgeLayout,
-    onSelectNode: onSelectKnowledgeNode
-  } = useKnowledgeGraphData()
+    refreshGraph: refreshKnowledgeGraph,
+    onSelectUnit: onSelectKnowledgeUnit
+  } = useKnowledgeGraphData({
+    isActive: viewMode === 'knowledge'
+  })
 
   async function onLibraryUpload(file) {
     setLibraryLoading(true)
@@ -245,6 +247,7 @@ function App() {
     }
 
     if (itemKey === 'knowledge') {
+      refreshKnowledgeGraph()
       setViewMode('knowledge')
     }
   }
@@ -392,27 +395,26 @@ function App() {
               onPaperFilterChange={setKnowledgePaperFilter}
               selectedSessionId={knowledgeSessionFilter}
               onSessionFilterChange={setKnowledgeSessionFilter}
-              selectedNodeType={knowledgeNodeTypeFilter}
-              onNodeTypeFilterChange={setKnowledgeNodeTypeFilter}
+              selectedUnitType={knowledgeUnitTypeFilter}
+              onUnitTypeFilterChange={setKnowledgeUnitTypeFilter}
               focusNeighborsOnly={focusNeighborsOnly}
               onFocusNeighborsToggle={setFocusNeighborsOnly}
               expansionDepth={knowledgeExpansionDepth}
               onExpansionDepthChange={setKnowledgeExpansionDepth}
               sortMode={knowledgeSortMode}
               onSortModeChange={setKnowledgeSortMode}
-              nodeTypeOptions={knowledgeNodeTypeOptions}
-              nodes={knowledgeNodes}
+              unitTypeOptions={knowledgeUnitTypeOptions}
+              units={knowledgeUnits}
               edges={knowledgeEdges}
               positions={knowledgePositions}
-              selectedNode={selectedKnowledgeNode}
-              selectedKnowledgeUnits={selectedKnowledgeUnits}
+              selectedUnit={selectedKnowledgeUnit}
               relatedNotes={knowledgeNotes}
-              neighboringNodes={knowledgeNeighboringNodes}
+              neighboringUnits={knowledgeNeighboringUnits}
               paperMap={knowledgePaperMap}
               sessionMap={knowledgeSessionMap}
-              neighborNodeIds={neighborNodeIds}
-              onSelectNode={onSelectKnowledgeNode}
-              onMoveNode={moveKnowledgeNode}
+              neighborUnitIds={neighborUnitIds}
+              onSelectUnit={onSelectKnowledgeUnit}
+              onMoveUnit={moveKnowledgeUnit}
               onResetLayout={resetKnowledgeLayout}
               onOpenNote={async (noteId) => {
                 setViewMode('notes')

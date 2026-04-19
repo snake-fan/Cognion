@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .session import Base
@@ -129,38 +129,22 @@ class KnowledgeUnit(Base):
     )
 
 
-class KnowledgeGraphNode(Base):
-    __tablename__ = "knowledge_graph_nodes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
-    node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="Concept")
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    normalized_key: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
-    aliases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-
 class KnowledgeGraphEdge(Base):
     __tablename__ = "knowledge_graph_edges"
     __table_args__ = (
-        UniqueConstraint("from_node_id", "relation", "to_node_id", name="uq_knowledge_graph_edges"),
+        UniqueConstraint("from_unit_id", "relation", "to_unit_id", name="uq_knowledge_graph_edges"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
-    from_node_id: Mapped[int] = mapped_column(
-        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
+    from_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_units.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     relation: Mapped[str] = mapped_column(String(64), nullable=False)
-    to_node_id: Mapped[int] = mapped_column(
-        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
+    to_unit_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_units.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -187,21 +171,82 @@ class KnowledgeUnitNoteLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
-class KnowledgeUnitNodeLink(Base):
-    __tablename__ = "knowledge_unit_node_links"
-    __table_args__ = (
-        UniqueConstraint("knowledge_unit_id", "node_id", name="uq_knowledge_unit_node_links"),
-    )
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    knowledge_unit_id: Mapped[int] = mapped_column(
-        ForeignKey("knowledge_units.id", ondelete="CASCADE"),
-        nullable=False,
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, default="")
+    pipeline_name: Mapped[str] = mapped_column(String(128), nullable=False, default="session_notes_pipeline")
+    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
+    session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
-    node_id: Mapped[int] = mapped_column(
-        ForeignKey("knowledge_graph_nodes.id", ondelete="CASCADE"),
-        nullable=False,
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class NoteUnitCandidate(Base):
+    __tablename__ = "note_unit_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    candidate_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class UnitCanonicalizationDecision(Base):
+    __tablename__ = "unit_canonicalization_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False, default="create_new")
+    target_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("knowledge_units.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
+    target_canonical_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class UnitRelationDecision(Base):
+    __tablename__ = "unit_relation_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    from_unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    relation_type: Mapped[str] = mapped_column(String(64), nullable=False, default="related_to")
+    to_unit_ref: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class GraphUpdateLog(Base):
+    __tablename__ = "graph_update_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="applied")
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

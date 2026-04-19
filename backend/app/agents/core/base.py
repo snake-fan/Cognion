@@ -6,7 +6,7 @@ from typing import Any
 
 from ..model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ..schemas import AgentExecutionLog, ModelCallParams, ParseResult
-from ..state import AgentState
+from ..state import BaseAgentState
 
 
 class BaseAgent(ABC):
@@ -26,7 +26,7 @@ class BaseAgent(ABC):
         self.response_format = response_format
 
     @abstractmethod
-    def build_messages(self, state: AgentState):
+    def build_messages(self, state: BaseAgentState):
         pass
 
     @abstractmethod
@@ -34,10 +34,10 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def apply_result(self, state: AgentState, parsed: ParseResult) -> None:
+    def apply_result(self, state: BaseAgentState, parsed: ParseResult) -> None:
         pass
 
-    async def run(self, state: AgentState) -> AgentState:
+    async def run(self, state: BaseAgentState) -> BaseAgentState:
         started = perf_counter()
         try:
             messages = self.build_messages(state)

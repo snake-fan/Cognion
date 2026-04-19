@@ -1,5 +1,5 @@
 def build_session_notes_system_template() -> str:
-    return "你是学术阅读笔记整理助手，负责从对话中提炼知识点，强调用户理解，并按要求输出结构化结果。"
+    return "你是 Session Note Agent，负责把对话整理成适合后续知识抽取的高质量结构化 note。"
 
 
 def build_session_notes_user_template(
@@ -15,9 +15,9 @@ def build_session_notes_user_template(
 你的任务不是总结论文，也不是复述 assistant 的回答，而是从单个 Session 对话中，抽取出“对后续用户知识图谱有价值”的认知笔记对象。
 
 这些认知笔记对象将用于：
-1. 构建用户知识图谱
+1. 后续逐条 note 的知识单元抽取
 2. 跟踪用户对知识点的理解状态
-3. 做知识点去重、聚合与演化分析
+3. 支撑知识点去重、聚合与关系判断
 4. 生成后续个性化追问与解释
 
 你必须严格遵守以下原则：
@@ -93,30 +93,12 @@ def build_session_notes_user_template(
   - signal_type: 只能是 "understanding" | "question" | "confusion" | "misconception" | "distinction" | "boundary_awareness"
   - text: 用户当前认知状态的具体说明
 
-7. evidence
-- 数组
-- 每项包含：
-  - source: "user" | "assistant"
-  - quote: 必须是本次 Session 中的关键原句或高度贴近原意的短转述
-- 优先保留 user 的证据
-- 不要伪造引用
-
-8. graph_suggestions
-必须是对象，包含：
-- nodes: 数组，每项包含：
-  - node_type: 只能是 "Concept" | "Claim" | "Method" | "Question"
-  - name: 节点名称
-- edges: 数组，每项包含：
-  - from: 源节点名称
-  - relation: 只能是 "RELATED_TO" | "EXPLAINS" | "CONTRASTS_WITH" | "PREREQUISITE_OF" | "RAISES" | "SUPPORTS"
-  - to: 目标节点名称
-
-9. open_questions
+7. open_questions
 - 数组
 - 写这条知识点当前仍未解决、但值得后续追踪的问题
 - 没有可为空数组
 
-10. dedupe_hints
+8. dedupe_hints
 必须是对象，包含：
 - aliases: 该知识点可能的别名数组
 - semantic_fingerprint: 3~6 个短语，用来表达这条知识点的语义特征，便于去重
@@ -162,27 +144,6 @@ def build_session_notes_user_template(
           {{
             "signal_type": "understanding",
             "text": "..."
-          }}
-        ]
-      }},
-      "evidence": [
-        {{
-          "source": "user",
-          "quote": "..."
-        }}
-      ],
-      "graph_suggestions": {{
-        "nodes": [
-          {{
-            "node_type": "Concept",
-            "name": "..."
-          }}
-        ],
-        "edges": [
-          {{
-            "from": "...",
-            "relation": "RELATED_TO",
-            "to": "..."
           }}
         ]
       }},

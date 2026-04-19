@@ -5,14 +5,15 @@ const CANVAS_HEIGHT = 720
 const MIN_VIEWBOX_WIDTH = 360
 const MAX_VIEWBOX_WIDTH = 2200
 
-function nodeColor(nodeType) {
-  if (nodeType === 'Claim') {
+function unitColor(unitType) {
+  const normalizedType = String(unitType || '').toLowerCase()
+  if (normalizedType === 'claim') {
     return '#ffb454'
   }
-  if (nodeType === 'Method') {
+  if (normalizedType === 'method') {
     return '#5fd6c7'
   }
-  if (nodeType === 'Question') {
+  if (normalizedType === 'question') {
     return '#ff7b72'
   }
   return '#7ab8ff'
@@ -105,29 +106,28 @@ function KnowledgeGraphLayout({
   onPaperFilterChange,
   selectedSessionId,
   onSessionFilterChange,
-  selectedNodeType,
-  onNodeTypeFilterChange,
+  selectedUnitType,
+  onUnitTypeFilterChange,
   focusNeighborsOnly,
   onFocusNeighborsToggle,
   expansionDepth,
   onExpansionDepthChange,
   sortMode,
   onSortModeChange,
-  nodeTypeOptions,
-  nodes,
+  unitTypeOptions,
+  units,
   edges,
   positions,
-  selectedNode,
-  selectedKnowledgeUnits,
+  selectedUnit,
   relatedNotes,
-  neighboringNodes,
+  neighboringUnits,
   paperMap,
   sessionMap,
-  neighborNodeIds,
-  onSelectNode,
+  neighborUnitIds,
+  onSelectUnit,
   onOpenNote,
   onOpenSession,
-  onMoveNode,
+  onMoveUnit,
   onResetLayout
 }) {
   const [draggingNodeId, setDraggingNodeId] = useState(null)
@@ -151,14 +151,14 @@ function KnowledgeGraphLayout({
     }
   }
 
-  function handlePointerDown(event, nodeId) {
+  function handlePointerDown(event, unitId) {
     if (event.button !== 0) {
       return
     }
     event.preventDefault()
     event.stopPropagation()
     const point = pointerToSvg(event)
-    const nodePoint = positions[nodeId]
+    const nodePoint = positions[unitId]
     dragStateRef.current =
       point && nodePoint
         ? {
@@ -168,8 +168,8 @@ function KnowledgeGraphLayout({
             startNodeY: nodePoint.y
           }
         : null
-    setDraggingNodeId(nodeId)
-    onSelectNode(nodeId)
+    setDraggingNodeId(unitId)
+    onSelectUnit(unitId)
   }
 
   function handleCanvasPointerDown(event) {
@@ -193,7 +193,7 @@ function KnowledgeGraphLayout({
       if (!point || !dragState) {
         return
       }
-      onMoveNode(draggingNodeId, {
+      onMoveUnit(draggingNodeId, {
         x: dragState.startNodeX + (point.x - dragState.startPointerX),
         y: dragState.startNodeY + (point.y - dragState.startPointerY)
       })
@@ -225,7 +225,7 @@ function KnowledgeGraphLayout({
   }
 
   function handleCanvasClick(event) {
-    onSelectNode(null)
+    onSelectUnit(null)
   }
 
   function handleCanvasWheel(event) {
@@ -259,7 +259,7 @@ function KnowledgeGraphLayout({
     selectedSessionId !== 'all'
       ? `Session: ${sessionMap.get(Number(selectedSessionId))?.name || selectedSessionId}`
       : null,
-    selectedNodeType !== 'all' ? `类型: ${selectedNodeType}` : null,
+    selectedUnitType !== 'all' ? `类型: ${selectedUnitType}` : null,
     focusNeighborsOnly ? `${expansionDepth} 跳聚焦` : null,
     sortMode !== 'centrality'
       ? `排序: ${sortMode === 'notes' ? '笔记频次' : '名称'}`
@@ -270,7 +270,7 @@ function KnowledgeGraphLayout({
     <main className="library-page knowledge-page">
       <section className="library-title-row">
         <h1 className="library-title">知识图谱</h1>
-        <p className="library-subtitle">支持筛选、邻居聚焦、节点拖拽，以及从图谱直接回跳到笔记和论文 Session。</p>
+        <p className="library-subtitle">一个 knowledge unit 就是一个节点，支持筛选、邻居聚焦、拖拽，以及从节点直接回跳到笔记和论文 Session。</p>
       </section>
 
       <section className="knowledge-workspace">
@@ -290,7 +290,7 @@ function KnowledgeGraphLayout({
               {filtersExpanded ? '收起筛选' : '筛选'}
             </button>
             <div className="knowledge-stats">
-              <span>{nodes.length} 个节点</span>
+              <span>{units.length} 个单元</span>
               <span>{edges.length} 条关系</span>
             </div>
           </div>
@@ -335,12 +335,12 @@ function KnowledgeGraphLayout({
               </select>
               <select
                 className="floating-create-input notes-select knowledge-filter-select"
-                value={selectedNodeType}
-                onChange={(event) => onNodeTypeFilterChange(event.target.value)}
+                value={selectedUnitType}
+                onChange={(event) => onUnitTypeFilterChange(event.target.value)}
               >
-                {nodeTypeOptions.map((nodeType) => (
-                  <option key={nodeType} value={nodeType}>
-                    {nodeType === 'all' ? '全部类型' : nodeType}
+                {unitTypeOptions.map((unitType) => (
+                  <option key={unitType} value={unitType}>
+                    {unitType === 'all' ? '全部类型' : unitType}
                   </option>
                 ))}
               </select>
@@ -379,7 +379,7 @@ function KnowledgeGraphLayout({
           {loading ? <div className="library-loading">正在加载知识图谱...</div> : null}
 
           <div className="knowledge-canvas-shell">
-            {nodes.length === 0 ? (
+            {units.length === 0 ? (
               <div className="empty-state">当前筛选条件下没有可展示的图谱数据。</div>
             ) : (
               <svg
@@ -404,18 +404,18 @@ function KnowledgeGraphLayout({
                   onClick={handleCanvasClick}
                 />
                 {edges.map((edge) => {
-                  const from = positions[edge.from_node_id]
-                  const to = positions[edge.to_node_id]
+                  const from = positions[edge.from_unit_id]
+                  const to = positions[edge.to_unit_id]
                   if (!from || !to) {
                     return null
                   }
                   const active =
-                    selectedNode &&
-                    (edge.from_node_id === selectedNode.id || edge.to_node_id === selectedNode.id)
-                  const anchorPoint = selectedNode?.id === edge.to_node_id ? to : from
-                  const targetPoint = selectedNode?.id === edge.to_node_id ? from : to
+                    selectedUnit &&
+                    (edge.from_unit_id === selectedUnit.id || edge.to_unit_id === selectedUnit.id)
+                  const anchorPoint = selectedUnit?.id === edge.to_unit_id ? to : from
+                  const targetPoint = selectedUnit?.id === edge.to_unit_id ? from : to
                   const labelLayouts =
-                    active && selectedNode
+                    active && selectedUnit
                       ? buildEdgeLabelLayouts(anchorPoint, targetPoint, edge.relations || [edge.relation])
                       : []
                   return (
@@ -443,31 +443,31 @@ function KnowledgeGraphLayout({
                   )
                 })}
 
-                {nodes.map((node) => {
-                  const point = positions[node.id]
+                {units.map((unit) => {
+                  const point = positions[unit.id]
                   if (!point) {
                     return null
                   }
-                  const active = selectedNode?.id === node.id
-                  const nearby = neighborNodeIds?.has(node.id)
+                  const active = selectedUnit?.id === unit.id
+                  const nearby = neighborUnitIds?.has(unit.id)
                   return (
                     <g
-                      key={node.id}
+                      key={unit.id}
                       className={`knowledge-node ${active ? 'active' : ''} ${nearby ? 'nearby' : ''}`}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onSelectNode(node.id)
+                        onSelectUnit(unit.id)
                       }}
-                      onPointerDown={(event) => handlePointerDown(event, node.id)}
+                      onPointerDown={(event) => handlePointerDown(event, unit.id)}
                     >
                       <circle
                         cx={point.x}
                         cy={point.y}
                         r={active ? 32 : nearby ? 28 : 24}
-                        fill={nodeColor(node.node_type)}
+                        fill={unitColor(unit.unit_type)}
                       />
                       <text x={point.x} y={point.y - 38} textAnchor="middle">
-                        {node.name}
+                        {unit.term}
                       </text>
                     </g>
                   )
@@ -478,54 +478,48 @@ function KnowledgeGraphLayout({
         </section>
 
         <aside className="knowledge-detail-panel">
-          {!selectedNode ? (
-            <div className="empty-state">请选择一个节点查看详情。</div>
+          {!selectedUnit ? (
+            <div className="empty-state">请选择一个单元节点查看详情。</div>
           ) : (
             <>
               <div className="knowledge-detail-header">
                 <div>
-                  <div className="knowledge-node-type">{selectedNode.node_type}</div>
-                  <h2>{selectedNode.name}</h2>
+                  <div className="knowledge-node-type">{selectedUnit.unit_type}</div>
+                  <h2>{selectedUnit.term}</h2>
                 </div>
-                {selectedNode.aliases?.length ? (
-                  <div className="knowledge-aliases">{selectedNode.aliases.join(' / ')}</div>
+                {selectedUnit.aliases?.length ? (
+                  <div className="knowledge-aliases">{selectedUnit.aliases.join(' / ')}</div>
                 ) : null}
               </div>
 
               <section className="knowledge-detail-section">
-                <h3>相邻节点</h3>
-                {neighboringNodes.length === 0 ? (
-                  <div className="project-empty">暂无相邻节点</div>
-                ) : (
-                  <div className="knowledge-neighbor-list">
-                    {neighboringNodes.map((node) => (
-                      <button
-                        key={node.id}
-                        type="button"
-                        className="knowledge-neighbor-chip"
-                        onClick={() => onSelectNode(node.id)}
-                      >
-                        {node.name}
-                      </button>
-                    ))}
+                <h3>单元摘要</h3>
+                <article className="knowledge-card">
+                  <div className="knowledge-card-title">
+                    {selectedUnit.term}
+                    <span>{selectedUnit.unit_type}</span>
                   </div>
-                )}
+                  <p>{selectedUnit.summary || selectedUnit.core_claim || '暂无摘要'}</p>
+                </article>
               </section>
 
               <section className="knowledge-detail-section">
-                <h3>关联知识单元</h3>
-                {selectedKnowledgeUnits.length === 0 ? (
-                  <div className="project-empty">暂无关联知识单元</div>
+                <h3>相邻单元</h3>
+                {neighboringUnits.length === 0 ? (
+                  <div className="project-empty">暂无相邻单元</div>
                 ) : (
-                  selectedKnowledgeUnits.map((unit) => (
-                    <article key={unit.id} className="knowledge-card">
-                      <div className="knowledge-card-title">
+                  <div className="knowledge-neighbor-list">
+                    {neighboringUnits.map((unit) => (
+                      <button
+                        key={unit.id}
+                        type="button"
+                        className="knowledge-neighbor-chip"
+                        onClick={() => onSelectUnit(unit.id)}
+                      >
                         {unit.term}
-                        <span>{unit.unit_type}</span>
-                      </div>
-                      <p>{unit.summary || unit.core_claim || '暂无摘要'}</p>
-                    </article>
-                  ))
+                      </button>
+                    ))}
+                  </div>
                 )}
               </section>
 

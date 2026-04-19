@@ -8,7 +8,7 @@ from ....services.pdf_storage import extract_pdf_text
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ...parsers import parse_metadata
 from ...schemas import ModelCallParams
-from ...state import AgentState, build_messages
+from ...state import ConversationAgentState, build_messages
 from ..agents.qa_agent import QAAgent
 from ..templates.metadata import build_metadata_system_template, build_metadata_user_template
 from ..templates.fallback import build_fallback_message
@@ -61,7 +61,7 @@ class ConversationOrchestrator(BaseOrchestrator):
         trace_id: str | None = None,
         session_id: str | None = None,
     ) -> str:
-        state = AgentState(
+        state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
             session_id=session_id,
             user_input=question,
@@ -91,7 +91,7 @@ class ConversationOrchestrator(BaseOrchestrator):
         trace_id: str | None = None,
         session_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        state = AgentState(
+        state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
             session_id=session_id,
             user_input=question,

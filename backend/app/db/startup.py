@@ -1,16 +1,19 @@
 from .models import (
+    AgentRun,
     ChatMessage,
     ChatSession,
     Folder,
+    GraphUpdateLog,
     KnowledgeGraphEdge,
-    KnowledgeGraphNode,
     KnowledgeUnit,
-    KnowledgeUnitNodeLink,
     KnowledgeUnitNoteLink,
     Note,
+    NoteUnitCandidate,
     NoteFolder,
     Paper,
     PaperPlacement,
+    UnitCanonicalizationDecision,
+    UnitRelationDecision,
 )
 from .session import Base, engine
 
@@ -27,9 +30,12 @@ def init_database() -> None:
             NoteFolder.__table__,
             Note.__table__,
             KnowledgeUnit.__table__,
-            KnowledgeGraphNode.__table__,
             KnowledgeGraphEdge.__table__,
             KnowledgeUnitNoteLink.__table__,
-            KnowledgeUnitNodeLink.__table__,
+            AgentRun.__table__,
+            NoteUnitCandidate.__table__,
+            UnitCanonicalizationDecision.__table__,
+            UnitRelationDecision.__table__,
+            GraphUpdateLog.__table__,
         ],
     )

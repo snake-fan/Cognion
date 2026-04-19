@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -269,6 +270,57 @@ class OpenAIModelAdapter:
                 error=str(exc),
             )
             raise ModelAdapterError(str(exc)) from exc
+
+    def call_blocking(
+        self,
+        *,
+        trace_id: str,
+        session_id: str | None,
+        agent_name: str,
+        messages: list[ModelMessage],
+        params: ModelCallParams | None = None,
+    ) -> ModelInvocationResult:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.call(
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    agent_name=agent_name,
+                    messages=messages,
+                    params=params,
+                )
+            )
+
+        result: ModelInvocationResult | None = None
+        error: BaseException | None = None
+
+        def _runner() -> None:
+            nonlocal result, error
+            try:
+                result = asyncio.run(
+                    self.call(
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        agent_name=agent_name,
+                        messages=messages,
+                        params=params,
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - defensive bridge for async callers
+                error = exc
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        # 这里的 join 可以理解为阻塞线程，等待 thread 执行完返回结果
+        thread.join()
+
+        if error is not None:
+            raise error
+        if result is None:
+            raise ModelAdapterError("Blocking model invocation returned no result")
+        return result
 
 
 def default_log_sink() -> InvocationLogSink:

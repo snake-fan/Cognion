@@ -50,13 +50,15 @@ async def generate_notes_from_session(
     paper_topic: str,
     session_messages: list[dict[str, str]],
     existing_topic_keys: list[str],
+    existing_knowledge_units: list[dict[str, object]] | None = None,
     max_points: int | None = None,
-) -> list[dict[str, object]]:
+) -> dict[str, object]:
     return await _orchestrator.generate_session_notes(
         paper_title=paper_title,
         paper_authors=paper_authors,
         paper_topic=paper_topic,
         session_messages=session_messages,
         existing_topic_keys=existing_topic_keys,
+        existing_knowledge_units=existing_knowledge_units,
         max_points=max_points,
     )

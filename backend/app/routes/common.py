@@ -7,7 +7,6 @@ from ..db import (
     ChatSession,
     Folder,
     KnowledgeGraphEdge,
-    KnowledgeGraphNode,
     KnowledgeUnit,
     Note,
     NoteFolder,
@@ -282,27 +281,13 @@ def knowledge_unit_to_dict(unit: KnowledgeUnit) -> dict[str, object]:
     }
 
 
-def knowledge_graph_node_to_dict(node: KnowledgeGraphNode) -> dict[str, object]:
-    return {
-        "id": node.id,
-        "paper_id": node.paper_id,
-        "node_type": node.node_type,
-        "name": node.name,
-        "normalized_key": node.normalized_key,
-        "aliases": node.aliases if isinstance(node.aliases, list) else [],
-        "payload": node.payload if isinstance(node.payload, dict) else {},
-        "created_at": node.created_at.isoformat() if isinstance(node.created_at, datetime) else "",
-        "updated_at": node.updated_at.isoformat() if isinstance(node.updated_at, datetime) else "",
-    }
-
-
 def knowledge_graph_edge_to_dict(edge: KnowledgeGraphEdge) -> dict[str, object]:
     return {
         "id": edge.id,
         "paper_id": edge.paper_id,
-        "from_node_id": edge.from_node_id,
+        "from_unit_id": edge.from_unit_id,
         "relation": edge.relation,
-        "to_node_id": edge.to_node_id,
+        "to_unit_id": edge.to_unit_id,
         "payload": edge.payload if isinstance(edge.payload, dict) else {},
         "created_at": edge.created_at.isoformat() if isinstance(edge.created_at, datetime) else "",
         "updated_at": edge.updated_at.isoformat() if isinstance(edge.updated_at, datetime) else "",

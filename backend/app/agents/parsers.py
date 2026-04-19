@@ -7,19 +7,27 @@ from typing import Any
 from pydantic import ValidationError
 
 from .schemas import (
+    AgentDecisionLog,
+    CanonicalDecision,
+    CanonicalDecisionsPayload,
+    CanonicalizationAction,
     DedupeHints,
-    EvidenceItem,
+    ExtractedUnit,
+    ExtractedUnitsPayload,
     FacetType,
-    GraphEdgeRelation,
-    GraphNodeType,
-    GraphSuggestions,
     KnowledgeFacet,
     KnowledgeUnit,
     PaperMetadata,
     ParseError,
     ParseResult,
+    RelationDecision,
+    RelationDecisionsPayload,
+    RelationType,
+    StructuredNote,
+    StructuredNotesPayload,
     SessionNote,
     SessionNotesPayload,
+    UnitRelationCandidate,
     UserModelSignal,
     UserSignal,
     UserSignalType,
@@ -28,8 +36,8 @@ from .schemas import (
 )
 
 UNDIRECTED_EDGE_RELATIONS = {
-    GraphEdgeRelation.RELATED_TO.value,
-    GraphEdgeRelation.CONTRASTS_WITH.value,
+    "RELATED_TO",
+    "CONTRASTS_WITH",
 }
 
 
@@ -159,59 +167,7 @@ def _normalize_state(value: str, unit_type: UnitType) -> UserState:
     return UserState.MENTIONED
 
 
-def _normalize_graph_suggestions(value: object) -> GraphSuggestions:
-    if not isinstance(value, dict):
-        return GraphSuggestions()
-
-    nodes: list[dict[str, str]] = []
-    seen_node_keys: set[str] = set()
-    raw_nodes = value.get("nodes")
-    if isinstance(raw_nodes, list):
-        for item in raw_nodes:
-            if not isinstance(item, dict):
-                continue
-            node_type = _to_clean_text(item.get("node_type"))
-            name = _to_clean_text(item.get("name"))
-            if not name:
-                continue
-            if node_type not in {item.value for item in GraphNodeType}:
-                node_type = GraphNodeType.QUESTION.value if ("?" in name or "？" in name) else GraphNodeType.CONCEPT.value
-            node_key = f"{node_type}:{name.lower()}"
-            if node_key in seen_node_keys:
-                continue
-            seen_node_keys.add(node_key)
-            nodes.append({"node_type": node_type, "name": name})
-
-    edges: list[dict[str, str]] = []
-    seen_edge_keys: set[str] = set()
-    raw_edges = value.get("edges")
-    if isinstance(raw_edges, list):
-        for item in raw_edges:
-            if not isinstance(item, dict):
-                continue
-            from_name = _to_clean_text(item.get("from"))
-            relation = _to_clean_text(item.get("relation"))
-            to_name = _to_clean_text(item.get("to"))
-            if not from_name or not to_name:
-                continue
-            if relation not in {item.value for item in GraphEdgeRelation}:
-                relation = GraphEdgeRelation.RELATED_TO.value
-
-            if relation in UNDIRECTED_EDGE_RELATIONS:
-                left_name, right_name = sorted([from_name, to_name], key=lambda x: x.lower())
-            else:
-                left_name, right_name = from_name, to_name
-
-            edge_key = f"{relation}:{left_name.lower()}:{right_name.lower()}"
-            if edge_key in seen_edge_keys:
-                continue
-            seen_edge_keys.add(edge_key)
-            edges.append({"from": left_name, "relation": relation, "to": right_name})
-
-    return GraphSuggestions.model_validate({"nodes": nodes, "edges": edges})
-
-
-def render_structured_note_markdown(note: SessionNote) -> str:
+def render_structured_note_markdown(note: StructuredNote | SessionNote) -> str:
     facet_labels = {
         FacetType.DEFINITION.value: "定义",
         FacetType.MECHANISM.value: "机制",
@@ -236,8 +192,6 @@ def render_structured_note_markdown(note: SessionNote) -> str:
         UserSignalType.DISTINCTION.value: "区分尝试",
         UserSignalType.BOUNDARY_AWARENESS.value: "边界意识",
     }
-    source_labels = {"user": "用户", "assistant": "助手"}
-
     lines = [f"# {note.title}", ""]
     if note.summary:
         lines.extend(["## 核心摘要", "", note.summary, ""])
@@ -264,12 +218,6 @@ def render_structured_note_markdown(note: SessionNote) -> str:
         label = signal_labels.get(signal.signal_type.value, signal.signal_type.value)
         lines.append(f"- {label}：{signal.text}")
     lines.append("")
-
-    if note.evidence:
-        lines.extend(["## 关键证据", ""])
-        for evidence in note.evidence:
-            lines.append(f"- {source_labels.get(evidence.source, evidence.source)}：{evidence.quote}")
-        lines.append("")
 
     if note.open_questions:
         lines.extend(["## 待追踪问题", ""])
@@ -341,7 +289,7 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
         return None
 
     unit_type = _normalize_unit_type(_to_clean_text(raw_knowledge_unit.get("unit_type")), fallback_text)
-    summary = raw_summary or core_claim or f"用户在本次 Session 中围绕“{term or title}”暴露出值得跟踪的认知状态。"
+    summary = raw_summary or core_claim
 
     facets: list[KnowledgeFacet] = []
     if isinstance(raw_knowledge_unit.get("facets"), list):
@@ -373,17 +321,6 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
                 )
             )
 
-    evidence_items: list[EvidenceItem] = []
-    if isinstance(item.get("evidence"), list):
-        for evidence in item.get("evidence"):
-            if not isinstance(evidence, dict):
-                continue
-            quote = _to_clean_text(evidence.get("quote"))
-            if not quote:
-                continue
-            source = "user" if _to_clean_text(evidence.get("source")) == "user" else "assistant"
-            evidence_items.append(EvidenceItem(source=source, quote=quote))
-
     dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
 
     note = SessionNote(
@@ -404,8 +341,6 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
             confidence=_to_confidence(raw_user_model_signal.get("confidence"), default=0.65),
             signals=signals,
         ),
-        evidence=evidence_items,
-        graph_suggestions=_normalize_graph_suggestions(item.get("graph_suggestions")),
         open_questions=_to_string_list(item.get("open_questions")),
         dedupe_hints=DedupeHints(
             aliases=_to_string_list(dedupe_hints.get("aliases")),
@@ -414,6 +349,23 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
     )
     note.content = render_structured_note_markdown(note)
     return note
+
+
+def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNote | None:
+    normalized = normalize_session_note(item, index=index)
+    if normalized is None:
+        return None
+    return StructuredNote(
+        note_id=normalized.note_id,
+        title=normalized.title,
+        topic_key=normalized.topic_key,
+        summary=normalized.summary,
+        content=normalized.content,
+        knowledge_unit=normalized.knowledge_unit,
+        user_model_signal=normalized.user_model_signal,
+        open_questions=normalized.open_questions,
+        dedupe_hints=normalized.dedupe_hints,
+    )
 
 
 def parse_session_notes(raw_text: str, max_points: int | None = None) -> ParseResult:
@@ -445,3 +397,208 @@ def parse_session_notes(raw_text: str, max_points: int | None = None) -> ParseRe
         )
 
     return ParseResult(ok=True, data=validated.notes, extracted_text=json_text)
+
+
+def parse_structured_notes(raw_text: str, max_points: int | None = None) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if not deserialize_result.ok:
+        return ParseResult(ok=True, data=[], extracted_text=json_text, fallback_used=True, error=deserialize_result.error)
+
+    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
+    raw_notes = payload.get("notes") if isinstance(payload.get("notes"), list) else []
+    notes: list[StructuredNote] = []
+    for index, raw_note in enumerate(raw_notes, start=1):
+        if not isinstance(raw_note, dict):
+            continue
+        normalized = normalize_structured_note(raw_note, index=index)
+        if normalized is not None:
+            notes.append(normalized)
+
+    if isinstance(max_points, int) and max_points > 0:
+        notes = notes[:max_points]
+
+    try:
+        validated = StructuredNotesPayload(notes=notes)
+    except ValidationError as exc:
+        return ParseResult(
+            ok=False,
+            extracted_text=json_text,
+            error=ParseError(code="structured_notes_schema_error", message="structured notes validation failed", details={"errors": exc.errors()}),
+        )
+
+    return ParseResult(ok=True, data=validated.notes, extracted_text=json_text)
+
+
+def _normalize_relation_type(value: str, fallback: str = "") -> RelationType:
+    if value in {item.value for item in RelationType}:
+        return RelationType(value)
+    text = f"{value} {fallback}".lower()
+    if "confus" in text or "混淆" in text:
+        return RelationType.CONFUSED_WITH
+    if "prereq" in text or "前置" in text:
+        return RelationType.PREREQUISITE_OF
+    if "use" in text or "用于" in text:
+        return RelationType.USED_FOR
+    if "same" in text or "同一" in text:
+        return RelationType.SAME_AS
+    if "ask" in text or "问题" in text:
+        return RelationType.ASKS_ABOUT
+    return RelationType.RELATED_TO
+
+
+def _normalize_canonical_action(value: str) -> CanonicalizationAction:
+    if value in {item.value for item in CanonicalizationAction}:
+        if value == CanonicalizationAction.SOFT_LINK.value:
+            return CanonicalizationAction.CREATE_NEW
+        return CanonicalizationAction(value)
+    text = value.lower()
+    if "merge" in text:
+        return CanonicalizationAction.MERGE
+    if "reuse" in text:
+        return CanonicalizationAction.REUSE
+    return CanonicalizationAction.CREATE_NEW
+
+
+def parse_extracted_units(raw_text: str, source_note_id: str) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if not deserialize_result.ok:
+        return ParseResult(ok=True, data=[], extracted_text=json_text, fallback_used=True, error=deserialize_result.error)
+
+    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
+    raw_units = payload.get("units") if isinstance(payload.get("units"), list) else []
+    units: list[ExtractedUnit] = []
+    seen: set[str] = set()
+    for index, raw_unit in enumerate(raw_units, start=1):
+        if not isinstance(raw_unit, dict):
+            continue
+        canonical_name = _to_clean_text(raw_unit.get("canonical_name") or raw_unit.get("term"))
+        if not canonical_name:
+            continue
+        unit_key = _normalize_topic_key(canonical_name)
+        if unit_key in seen:
+            continue
+        seen.add(unit_key)
+
+        local_relations: list[UnitRelationCandidate] = []
+        raw_relations = raw_unit.get("local_relations")
+        if isinstance(raw_relations, list):
+            for raw_relation in raw_relations:
+                if not isinstance(raw_relation, dict):
+                    continue
+                target_ref = _to_clean_text(raw_relation.get("target_unit_ref") or raw_relation.get("to_unit_ref"))
+                if not target_ref:
+                    continue
+                local_relations.append(
+                    UnitRelationCandidate(
+                        target_unit_ref=target_ref,
+                        relation_type=_normalize_relation_type(_to_clean_text(raw_relation.get("relation_type"))),
+                    )
+                )
+
+        units.append(
+            ExtractedUnit(
+                unit_id=_to_clean_text(raw_unit.get("unit_id")) or f"{source_note_id}_unit_{index:03d}",
+                source_note_id=source_note_id,
+                type=_normalize_unit_type(_to_clean_text(raw_unit.get("type")), canonical_name),
+                canonical_name=canonical_name,
+                aliases=_to_string_list(raw_unit.get("aliases")),
+                description=_to_clean_text(raw_unit.get("description")),
+                keywords=_to_string_list(raw_unit.get("keywords")),
+                slots=raw_unit.get("slots") if isinstance(raw_unit.get("slots"), dict) else {},
+                local_relations=local_relations,
+            )
+        )
+
+    try:
+        validated = ExtractedUnitsPayload(units=units)
+    except ValidationError as exc:
+        return ParseResult(
+            ok=False,
+            extracted_text=json_text,
+            error=ParseError(code="extracted_units_schema_error", message="extracted units validation failed", details={"errors": exc.errors()}),
+        )
+
+    return ParseResult(ok=True, data=validated.units, extracted_text=json_text)
+
+
+def parse_canonical_decisions(raw_text: str) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if not deserialize_result.ok:
+        return ParseResult(ok=True, data=[], extracted_text=json_text, fallback_used=True, error=deserialize_result.error)
+
+    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
+    raw_decisions = payload.get("decisions") if isinstance(payload.get("decisions"), list) else []
+    decisions: list[CanonicalDecision] = []
+    for raw_decision in raw_decisions:
+        if not isinstance(raw_decision, dict):
+            continue
+        source_unit_id = _to_clean_text(raw_decision.get("source_unit_id"))
+        if not source_unit_id:
+            continue
+        decisions.append(
+            CanonicalDecision(
+                source_unit_id=source_unit_id,
+                action=_normalize_canonical_action(_to_clean_text(raw_decision.get("action"))),
+                target_unit_id=int(raw_decision["target_unit_id"]) if isinstance(raw_decision.get("target_unit_id"), int) else None,
+                target_canonical_key=_to_clean_text(raw_decision.get("target_canonical_key")) or None,
+                confidence=_to_confidence(raw_decision.get("confidence"), default=0.55),
+                reason=_to_clean_text(raw_decision.get("reason")),
+            )
+        )
+
+    try:
+        validated = CanonicalDecisionsPayload(decisions=decisions)
+    except ValidationError as exc:
+        return ParseResult(
+            ok=False,
+            extracted_text=json_text,
+            error=ParseError(code="canonical_decisions_schema_error", message="canonical decisions validation failed", details={"errors": exc.errors()}),
+        )
+
+    return ParseResult(ok=True, data=validated.decisions, extracted_text=json_text)
+
+
+def parse_relation_decisions(raw_text: str) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if not deserialize_result.ok:
+        return ParseResult(ok=True, data=[], extracted_text=json_text, fallback_used=True, error=deserialize_result.error)
+
+    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
+    raw_relations = payload.get("relations") if isinstance(payload.get("relations"), list) else []
+    relations: list[RelationDecision] = []
+    seen: set[str] = set()
+    for raw_relation in raw_relations:
+        if not isinstance(raw_relation, dict):
+            continue
+        from_unit_ref = _to_clean_text(raw_relation.get("from_unit_ref"))
+        to_unit_ref = _to_clean_text(raw_relation.get("to_unit_ref"))
+        if not from_unit_ref or not to_unit_ref:
+            continue
+        relation_type = _normalize_relation_type(_to_clean_text(raw_relation.get("relation_type")))
+        key = f"{from_unit_ref}:{relation_type.value}:{to_unit_ref}"
+        if key in seen:
+            continue
+        seen.add(key)
+        relations.append(
+            RelationDecision(
+                from_unit_ref=from_unit_ref,
+                relation_type=relation_type,
+                to_unit_ref=to_unit_ref,
+                confidence=_to_confidence(raw_relation.get("confidence"), default=0.55),
+            )
+        )
+
+    try:
+        validated = RelationDecisionsPayload(relations=relations)
+    except ValidationError as exc:
+        return ParseResult(
+            ok=False,
+            extracted_text=json_text,
+            error=ParseError(code="relation_decisions_schema_error", message="relation decisions validation failed", details={"errors": exc.errors()}),
+        )
+
+    return ParseResult(ok=True, data=validated.relations, extracted_text=json_text)

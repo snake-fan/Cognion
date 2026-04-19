@@ -6,10 +6,18 @@ from typing import Any
 from uuid import uuid4
 
 from .schemas import AgentExecutionLog, ModelMessage
+from .schemas import (
+    AgentDecisionLog,
+    CanonicalDecision,
+    GraphPatch,
+    RelationDecision,
+    StructuredNote,
+    ExtractedUnit,
+)
 
 
 @dataclass(slots=True)
-class AgentState:
+class BaseAgentState:
     trace_id: str = field(default_factory=lambda: uuid4().hex)
     session_id: str | None = None
     user_input: str = ""
@@ -42,6 +50,33 @@ class AgentState:
 
     def get_agent_output(self, agent_name: str, default: Any = None) -> Any:
         return self.agent_outputs.get(agent_name, default)
+
+
+@dataclass(slots=True)
+class ConversationAgentState(BaseAgentState):
+    """Shared conversation-oriented state for QA and future lightweight multi-agent flows."""
+
+
+@dataclass(slots=True)
+class NotesAgentState(BaseAgentState):
+    notes: list[StructuredNote] = field(default_factory=list)
+    note_units: dict[str, list[ExtractedUnit]] = field(default_factory=dict)
+    canonicalization_decisions: dict[str, list[CanonicalDecision]] = field(default_factory=dict)
+    relation_decisions: dict[str, list[RelationDecision]] = field(default_factory=dict)
+    graph_patch: GraphPatch = field(default_factory=GraphPatch)
+    provenance_log: list[AgentDecisionLog] = field(default_factory=list)
+
+    def add_note_units(self, note_id: str, units: list[ExtractedUnit]) -> None:
+        self.note_units[note_id] = units
+
+    def add_canonicalization_decisions(self, note_id: str, decisions: list[CanonicalDecision]) -> None:
+        self.canonicalization_decisions[note_id] = decisions
+
+    def add_relation_decisions(self, note_id: str, decisions: list[RelationDecision]) -> None:
+        self.relation_decisions[note_id] = decisions
+
+    def add_provenance_entries(self, entries: list[AgentDecisionLog]) -> None:
+        self.provenance_log.extend(entries)
 
 
 def build_messages(system_prompt: str, user_prompt: str) -> list[ModelMessage]:

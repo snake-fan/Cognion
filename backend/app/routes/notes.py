@@ -4,18 +4,20 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException
 from sqlalchemy.orm import Session
 
-from ..db import ChatMessage, ChatSession, Note, NoteFolder, Paper, get_db
+from ..db import ChatMessage, ChatSession, KnowledgeUnit, Note, NoteFolder, Paper, get_db
 from ..services import (
+    apply_graph_patch,
     generate_notes_from_session,
     move_note_file_to_segments,
     overwrite_note_markdown,
+    persist_pipeline_audit_records,
     persist_note_markdown,
     rename_note_markdown_file,
-    sync_note_to_knowledge_graph,
 )
 from .common import (
     build_note_folder_tree,
     collect_descendant_note_folder_ids,
+    knowledge_unit_to_dict,
     normalize_topic_key,
     note_folder_segments,
     note_folder_to_dict,
@@ -94,8 +96,12 @@ async def generate_notes_for_session(
         for note in existing_session_notes
         if note_topic_key(note)
     ]
+    existing_knowledge_units = [
+        knowledge_unit_to_dict(unit)
+        for unit in db.query(KnowledgeUnit).order_by(KnowledgeUnit.updated_at.desc(), KnowledgeUnit.id.asc()).all()
+    ]
 
-    generated_notes = await generate_notes_from_session(
+    pipeline_result = await generate_notes_from_session(
         paper_title=paper.title,
         paper_authors=paper.authors,
         paper_topic=paper.research_topic,
@@ -107,14 +113,19 @@ async def generate_notes_for_session(
             }
             for message in messages
         ],
+        # 针对当前 Paper 范围内的 topic key，包含但不限于当前 Session 相关的笔记
         existing_topic_keys=existing_topic_keys,
+        # 针对全局 knowledge unit
+        existing_knowledge_units=existing_knowledge_units,
         max_points=max_points,
     )
+    generated_notes = pipeline_result.get("notes") if isinstance(pipeline_result.get("notes"), list) else []
 
     created_notes: list[Note] = []
     graph_sync_results: list[dict[str, object]] = []
     skipped_topics: list[dict[str, str]] = []
     all_topic_keys = {key for key in existing_topic_keys if key}
+    notes_by_ref: dict[str, Note] = {}
 
     for item in generated_notes:
         title = str(item.get("title") or "").strip()
@@ -124,20 +135,23 @@ async def generate_notes_for_session(
         candidate_topic_key = str(item.get("topic_key") or "").strip()
         normalized_topic_key = normalize_topic_key(candidate_topic_key or title)
         structured_data = {
-            "note_id": note_id,
-            "title": title,
-            "topic_key": normalized_topic_key,
-            "summary": summary,
-            "knowledge_unit": item.get("knowledge_unit") if isinstance(item.get("knowledge_unit"), dict) else {},
-            "user_model_signal": item.get("user_model_signal")
-            if isinstance(item.get("user_model_signal"), dict)
-            else {},
-            "evidence": item.get("evidence") if isinstance(item.get("evidence"), list) else [],
-            "graph_suggestions": item.get("graph_suggestions")
-            if isinstance(item.get("graph_suggestions"), dict)
-            else {},
-            "open_questions": item.get("open_questions") if isinstance(item.get("open_questions"), list) else [],
-            "dedupe_hints": item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {},
+            "note_schema_version": 2,
+            "structured_note": {
+                "note_id": note_id,
+                "title": title,
+                "topic_key": normalized_topic_key,
+                "summary": summary,
+                "knowledge_unit": item.get("knowledge_unit") if isinstance(item.get("knowledge_unit"), dict) else {},
+                "user_model_signal": item.get("user_model_signal")
+                if isinstance(item.get("user_model_signal"), dict)
+                else {},
+                "open_questions": item.get("open_questions") if isinstance(item.get("open_questions"), list) else [],
+                "dedupe_hints": item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {},
+            },
+            "agent_run_ref": {
+                "trace_id": str(pipeline_result.get("trace_id") or ""),
+                "pipeline": "session_notes_pipeline",
+            },
         }
 
         if not title or not content:
@@ -176,16 +190,8 @@ async def generate_notes_for_session(
             )
             db.add(note)
             db.flush()
-            graph_sync = sync_note_to_knowledge_graph(db, note)
-            graph_sync_results.append(
-                {
-                    "note_id": note.id,
-                    "knowledge_unit_id": graph_sync.get("knowledge_unit_id"),
-                    "node_ids": graph_sync.get("node_ids", []),
-                    "edge_ids": graph_sync.get("edge_ids", []),
-                }
-            )
             created_notes.append(note)
+            notes_by_ref[note.note_id] = note
             if normalized_topic_key:
                 all_topic_keys.add(normalized_topic_key)
         except Exception:
@@ -196,6 +202,29 @@ async def generate_notes_for_session(
                     "reason": "persist_failed",
                 }
             )
+
+    graph_patch = pipeline_result.get("graph_patch") if isinstance(pipeline_result.get("graph_patch"), dict) else {}
+    if notes_by_ref and graph_patch:
+        graph_sync_results = apply_graph_patch(
+            db,
+            graph_patch=graph_patch,
+            notes_by_ref=notes_by_ref,
+        )
+        pipeline_result["graph_sync_results"] = graph_sync_results
+        agent_run_id = persist_pipeline_audit_records(
+            db,
+            trace_id=str(pipeline_result.get("trace_id") or ""),
+            paper_id=paper_id,
+            session_id=session_id,
+            pipeline_payload=pipeline_result,
+            notes_by_ref=notes_by_ref,
+        )
+        for note in created_notes:
+            next_structured = dict(note.structured_data) if isinstance(note.structured_data, dict) else {}
+            next_run_ref = next_structured.get("agent_run_ref") if isinstance(next_structured.get("agent_run_ref"), dict) else {}
+            next_run_ref["agent_run_id"] = agent_run_id
+            next_structured["agent_run_ref"] = next_run_ref
+            note.structured_data = next_structured
 
     db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
     db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})

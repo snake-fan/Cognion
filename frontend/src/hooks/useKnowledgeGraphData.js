@@ -3,12 +3,13 @@ import { fetchKnowledgeGraph } from '../services/api'
 
 const CANVAS_WIDTH = 1040
 const CANVAS_HEIGHT = 720
+
 function aggregateEdges(edges) {
   const grouped = new Map()
 
   for (const edge of Array.isArray(edges) ? edges : []) {
-    const fromId = Number(edge?.from_node_id)
-    const toId = Number(edge?.to_node_id)
+    const fromId = Number(edge?.from_unit_id)
+    const toId = Number(edge?.to_unit_id)
     if (!fromId || !toId || fromId === toId) {
       continue
     }
@@ -19,8 +20,8 @@ function aggregateEdges(edges) {
     const relation = String(edge?.relation || 'RELATED_TO')
     const entry = grouped.get(key) || {
       id: key,
-      from_node_id: leftId,
-      to_node_id: rightId,
+      from_unit_id: leftId,
+      to_unit_id: rightId,
       relations: [],
       relation_set: new Set(),
       raw_edge_ids: []
@@ -42,27 +43,27 @@ function aggregateEdges(edges) {
   }))
 }
 
-function buildInitialNodePositions(nodes, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
-  if (!Array.isArray(nodes) || nodes.length === 0) {
+function buildInitialUnitPositions(units, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
+  if (!Array.isArray(units) || units.length === 0) {
     return {}
   }
 
   const centerX = width / 2
   const centerY = height / 2
-  const total = nodes.length
+  const total = units.length
   const positions = {}
 
   if (total === 1) {
-    positions[nodes[0].id] = { x: centerX, y: centerY }
+    positions[units[0].id] = { x: centerX, y: centerY }
     return positions
   }
 
   const rings = Math.max(1, Math.ceil(total / 12))
-  nodes.forEach((node, index) => {
+  units.forEach((unit, index) => {
     const ring = index % rings
     const radius = 120 + ring * 92
     const angle = (index / total) * Math.PI * 2 - Math.PI / 2
-    positions[node.id] = {
+    positions[unit.id] = {
       x: Math.round(centerX + Math.cos(angle) * radius),
       y: Math.round(centerY + Math.sin(angle) * radius)
     }
@@ -78,115 +79,134 @@ function clampPoint(point) {
   }
 }
 
-function useKnowledgeGraphData() {
+function useKnowledgeGraphData({ isActive = false } = {}) {
   const [loading, setLoading] = useState(false)
   const [graph, setGraph] = useState({
-    nodes: [],
+    units: [],
     edges: [],
-    knowledge_units: [],
     notes: [],
     papers: [],
     sessions: []
   })
   const [query, setQuery] = useState('')
-  const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [selectedUnitId, setSelectedUnitId] = useState(null)
   const [selectedPaperId, setSelectedPaperId] = useState('all')
   const [selectedSessionId, setSelectedSessionId] = useState('all')
-  const [selectedNodeType, setSelectedNodeType] = useState('all')
+  const [selectedUnitType, setSelectedUnitType] = useState('all')
   const [focusNeighborsOnly, setFocusNeighborsOnly] = useState(false)
   const [expansionDepth, setExpansionDepth] = useState(1)
   const [sortMode, setSortMode] = useState('centrality')
   const [positions, setPositions] = useState({})
+  const [refreshToken, setRefreshToken] = useState(0)
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined
+    }
+
+    let cancelled = false
+
     async function loadGraph() {
       setLoading(true)
       try {
         const payload = await fetchKnowledgeGraph()
+        if (cancelled) {
+          return
+        }
         const nextGraph = {
-          nodes: payload.nodes || [],
+          units: payload.units || [],
           edges: aggregateEdges(payload.edges || []),
-          knowledge_units: payload.knowledge_units || [],
           notes: payload.notes || [],
           papers: payload.papers || [],
           sessions: payload.sessions || []
         }
         setGraph(nextGraph)
         setPositions((prev) => {
-          const seeded = buildInitialNodePositions(nextGraph.nodes)
+          const seeded = buildInitialUnitPositions(nextGraph.units)
           const next = { ...seeded, ...prev }
-          for (const node of nextGraph.nodes) {
-            if (!next[node.id]) {
-              next[node.id] = seeded[node.id]
+          for (const unit of nextGraph.units) {
+            if (!next[unit.id]) {
+              next[unit.id] = seeded[unit.id]
             }
           }
           return next
         })
       } catch (error) {
         console.error(error)
+        if (cancelled) {
+          return
+        }
         setGraph({
-          nodes: [],
+          units: [],
           edges: [],
-          knowledge_units: [],
           notes: [],
           papers: [],
           sessions: []
         })
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     loadGraph()
+    return () => {
+      cancelled = true
+    }
+  }, [isActive, refreshToken])
+
+  useEffect(() => {
+    function handleKnowledgeGraphRefresh() {
+      setRefreshToken((value) => value + 1)
+    }
+
+    window.addEventListener('cognion:notes-updated', handleKnowledgeGraphRefresh)
+    window.addEventListener('cognion:knowledge-graph-refresh', handleKnowledgeGraphRefresh)
+    return () => {
+      window.removeEventListener('cognion:notes-updated', handleKnowledgeGraphRefresh)
+      window.removeEventListener('cognion:knowledge-graph-refresh', handleKnowledgeGraphRefresh)
+    }
   }, [])
 
   const paperMap = useMemo(() => new Map(graph.papers.map((paper) => [paper.id, paper])), [graph.papers])
   const sessionMap = useMemo(() => new Map(graph.sessions.map((session) => [session.id, session])), [graph.sessions])
   const noteMap = useMemo(() => new Map(graph.notes.map((note) => [note.id, note])), [graph.notes])
-  const unitMap = useMemo(() => new Map(graph.knowledge_units.map((unit) => [unit.id, unit])), [graph.knowledge_units])
 
-  const nodeContexts = useMemo(() => {
+  const unitContexts = useMemo(() => {
     const contexts = new Map()
-    for (const node of graph.nodes) {
-      const noteIds = new Set()
+    for (const unit of graph.units) {
+      const noteIds = new Set(unit.note_ids || [])
       const paperIds = new Set()
       const sessionIds = new Set()
 
-      for (const unitId of node.knowledge_unit_ids || []) {
-        const unit = unitMap.get(unitId)
-        if (!unit) {
+      for (const noteId of noteIds) {
+        const note = noteMap.get(noteId)
+        if (!note) {
           continue
         }
-
-        for (const noteId of unit.note_ids || []) {
-          noteIds.add(noteId)
-          const note = noteMap.get(noteId)
-          if (!note) {
-            continue
-          }
-          if (note.paper_id) {
-            paperIds.add(note.paper_id)
-          }
-          if (note.session_id) {
-            sessionIds.add(String(note.session_id))
-          }
+        if (note.paper_id) {
+          paperIds.add(note.paper_id)
+        }
+        if (note.session_id) {
+          sessionIds.add(String(note.session_id))
         }
       }
 
-      contexts.set(node.id, {
+      contexts.set(unit.id, {
         noteIds,
         paperIds,
         sessionIds
       })
     }
     return contexts
-  }, [graph.nodes, noteMap, unitMap])
+  }, [graph.units, noteMap])
 
-  const filteredNodes = useMemo(() => {
+  const filteredUnits = useMemo(() => {
     const trimmed = query.trim().toLowerCase()
-    return graph.nodes.filter((node) => {
-      const context = nodeContexts.get(node.id)
-      if (selectedNodeType !== 'all' && node.node_type !== selectedNodeType) {
+    return graph.units.filter((unit) => {
+      const context = unitContexts.get(unit.id)
+      if (selectedUnitType !== 'all' && unit.unit_type !== selectedUnitType) {
         return false
       }
       if (selectedPaperId !== 'all' && !context?.paperIds?.has(selectedPaperId)) {
@@ -200,166 +220,151 @@ function useKnowledgeGraphData() {
       }
 
       const haystacks = [
-        node.name,
-        ...(Array.isArray(node.aliases) ? node.aliases : []),
-        ...(Array.isArray(node.knowledge_unit_ids)
-          ? node.knowledge_unit_ids.map((id) => unitMap.get(id)?.summary || '')
-          : [])
+        unit.term,
+        unit.summary,
+        unit.core_claim,
+        unit.canonical_key,
+        ...(Array.isArray(unit.aliases) ? unit.aliases : [])
       ]
       return haystacks.some((text) => String(text || '').toLowerCase().includes(trimmed))
     })
-  }, [graph.nodes, nodeContexts, query, selectedNodeType, selectedPaperId, selectedSessionId, unitMap])
+  }, [graph.units, query, selectedPaperId, selectedSessionId, selectedUnitType, unitContexts])
 
-  const baseVisibleNodeIds = useMemo(() => new Set(filteredNodes.map((node) => node.id)), [filteredNodes])
+  const baseVisibleUnitIds = useMemo(() => new Set(filteredUnits.map((unit) => unit.id)), [filteredUnits])
 
-  const selectedNode =
-    filteredNodes.find((node) => node.id === selectedNodeId) ||
-    graph.nodes.find((node) => node.id === selectedNodeId) ||
+  const selectedUnit =
+    filteredUnits.find((unit) => unit.id === selectedUnitId) ||
+    graph.units.find((unit) => unit.id === selectedUnitId) ||
     null
 
   useEffect(() => {
-    if (selectedNodeId !== null && !selectedNode) {
-      setSelectedNodeId(null)
+    if (selectedUnitId !== null && !selectedUnit) {
+      setSelectedUnitId(null)
     }
-  }, [selectedNode, selectedNodeId])
+  }, [selectedUnit, selectedUnitId])
 
-  const neighborNodeIds = useMemo(() => {
-    if (!selectedNode) {
+  const neighborUnitIds = useMemo(() => {
+    if (!selectedUnit) {
       return new Set()
     }
-    const neighbors = new Set([selectedNode.id])
+    const neighbors = new Set([selectedUnit.id])
     for (const edge of graph.edges) {
-      if (edge.from_node_id === selectedNode.id) {
-        neighbors.add(edge.to_node_id)
+      if (edge.from_unit_id === selectedUnit.id) {
+        neighbors.add(edge.to_unit_id)
       }
-      if (edge.to_node_id === selectedNode.id) {
-        neighbors.add(edge.from_node_id)
+      if (edge.to_unit_id === selectedUnit.id) {
+        neighbors.add(edge.from_unit_id)
       }
     }
     return neighbors
-  }, [graph.edges, selectedNode])
+  }, [graph.edges, selectedUnit])
 
-  const secondHopNodeIds = useMemo(() => {
-    if (!selectedNode) {
+  const secondHopUnitIds = useMemo(() => {
+    if (!selectedUnit) {
       return new Set()
     }
 
-    const neighbors = new Set(neighborNodeIds)
+    const neighbors = new Set(neighborUnitIds)
     for (const edge of graph.edges) {
-      if (neighbors.has(edge.from_node_id)) {
-        neighbors.add(edge.to_node_id)
+      if (neighbors.has(edge.from_unit_id)) {
+        neighbors.add(edge.to_unit_id)
       }
-      if (neighbors.has(edge.to_node_id)) {
-        neighbors.add(edge.from_node_id)
+      if (neighbors.has(edge.to_unit_id)) {
+        neighbors.add(edge.from_unit_id)
       }
     }
     return neighbors
-  }, [graph.edges, neighborNodeIds, selectedNode])
+  }, [graph.edges, neighborUnitIds, selectedUnit])
 
   const degreeMap = useMemo(() => {
     const next = new Map()
     for (const edge of graph.edges) {
-      next.set(edge.from_node_id, (next.get(edge.from_node_id) || 0) + 1)
-      next.set(edge.to_node_id, (next.get(edge.to_node_id) || 0) + 1)
+      next.set(edge.from_unit_id, (next.get(edge.from_unit_id) || 0) + 1)
+      next.set(edge.to_unit_id, (next.get(edge.to_unit_id) || 0) + 1)
     }
     return next
   }, [graph.edges])
 
   const noteCountMap = useMemo(() => {
     const next = new Map()
-    for (const node of graph.nodes) {
-      const context = nodeContexts.get(node.id)
-      next.set(node.id, context?.noteIds?.size || 0)
+    for (const unit of graph.units) {
+      const context = unitContexts.get(unit.id)
+      next.set(unit.id, context?.noteIds?.size || 0)
     }
     return next
-  }, [graph.nodes, nodeContexts])
+  }, [graph.units, unitContexts])
 
-  const visibleNodeIds = useMemo(() => {
-    if (!focusNeighborsOnly || !selectedNode) {
-      return baseVisibleNodeIds
+  const visibleUnitIds = useMemo(() => {
+    if (!focusNeighborsOnly || !selectedUnit) {
+      return baseVisibleUnitIds
     }
     const next = new Set()
-    const expandedSet = expansionDepth >= 2 ? secondHopNodeIds : neighborNodeIds
-    for (const nodeId of expandedSet) {
-      if (baseVisibleNodeIds.has(nodeId)) {
-        next.add(nodeId)
+    const expandedSet = expansionDepth >= 2 ? secondHopUnitIds : neighborUnitIds
+    for (const unitId of expandedSet) {
+      if (baseVisibleUnitIds.has(unitId)) {
+        next.add(unitId)
       }
     }
     return next
-  }, [baseVisibleNodeIds, expansionDepth, focusNeighborsOnly, neighborNodeIds, secondHopNodeIds, selectedNode])
+  }, [baseVisibleUnitIds, expansionDepth, focusNeighborsOnly, neighborUnitIds, secondHopUnitIds, selectedUnit])
 
-  const nodes = useMemo(
+  const units = useMemo(
     () =>
-      filteredNodes
-        .filter((node) => visibleNodeIds.has(node.id))
+      filteredUnits
+        .filter((unit) => visibleUnitIds.has(unit.id))
         .sort((left, right) => {
           if (sortMode === 'notes') {
             return (noteCountMap.get(right.id) || 0) - (noteCountMap.get(left.id) || 0)
           }
           if (sortMode === 'alphabetical') {
-            return String(left.name || '').localeCompare(String(right.name || ''))
+            return String(left.term || '').localeCompare(String(right.term || ''))
           }
           return (degreeMap.get(right.id) || 0) - (degreeMap.get(left.id) || 0)
         }),
-    [degreeMap, filteredNodes, noteCountMap, sortMode, visibleNodeIds]
+    [degreeMap, filteredUnits, noteCountMap, sortMode, visibleUnitIds]
   )
 
   const edges = useMemo(
-    () => graph.edges.filter((edge) => visibleNodeIds.has(edge.from_node_id) && visibleNodeIds.has(edge.to_node_id)),
-    [graph.edges, visibleNodeIds]
+    () => graph.edges.filter((edge) => visibleUnitIds.has(edge.from_unit_id) && visibleUnitIds.has(edge.to_unit_id)),
+    [graph.edges, visibleUnitIds]
   )
-
-  const selectedKnowledgeUnits = useMemo(() => {
-    if (!selectedNode?.knowledge_unit_ids?.length) {
-      return []
-    }
-    return selectedNode.knowledge_unit_ids.map((unitId) => unitMap.get(unitId)).filter(Boolean)
-  }, [selectedNode, unitMap])
 
   const relatedNotes = useMemo(() => {
-    const collected = []
-    const seen = new Set()
-    for (const unit of selectedKnowledgeUnits) {
-      for (const noteId of unit.note_ids || []) {
-        if (seen.has(noteId)) {
-          continue
-        }
-        const note = noteMap.get(noteId)
-        if (!note) {
-          continue
-        }
-        seen.add(noteId)
-        collected.push(note)
-      }
-    }
-    return collected
-  }, [selectedKnowledgeUnits, noteMap])
-
-  const neighboringNodes = useMemo(() => {
-    if (!selectedNode) {
+    if (!selectedUnit?.note_ids?.length) {
       return []
     }
-    return [...neighborNodeIds]
-      .filter((nodeId) => nodeId !== selectedNode.id)
-      .map((nodeId) => graph.nodes.find((node) => node.id === nodeId))
+    return selectedUnit.note_ids.map((noteId) => noteMap.get(noteId)).filter(Boolean)
+  }, [noteMap, selectedUnit])
+
+  const neighboringUnits = useMemo(() => {
+    if (!selectedUnit) {
+      return []
+    }
+    return [...neighborUnitIds]
+      .filter((unitId) => unitId !== selectedUnit.id)
+      .map((unitId) => graph.units.find((unit) => unit.id === unitId))
       .filter(Boolean)
       .slice(0, 12)
-  }, [graph.nodes, neighborNodeIds, selectedNode])
+  }, [graph.units, neighborUnitIds, selectedUnit])
 
-  const nodeTypeOptions = useMemo(
-    () => ['all', ...new Set(graph.nodes.map((node) => node.node_type).filter(Boolean))],
-    [graph.nodes]
+  const unitTypeOptions = useMemo(
+    () => ['all', ...new Set(graph.units.map((unit) => unit.unit_type).filter(Boolean))],
+    [graph.units]
   )
 
-  function moveNode(nodeId, point) {
+  function moveUnit(unitId, point) {
     setPositions((prev) => ({
       ...prev,
-      [nodeId]: clampPoint(point)
+      [unitId]: clampPoint(point)
     }))
   }
 
   function resetLayout() {
-    setPositions(buildInitialNodePositions(graph.nodes))
+    setPositions(buildInitialUnitPositions(graph.units))
+  }
+
+  function refreshGraph() {
+    setRefreshToken((value) => value + 1)
   }
 
   return {
@@ -370,28 +375,28 @@ function useKnowledgeGraphData() {
     setSelectedPaperId,
     selectedSessionId,
     setSelectedSessionId,
-    selectedNodeType,
-    setSelectedNodeType,
+    selectedUnitType,
+    setSelectedUnitType,
     focusNeighborsOnly,
     setFocusNeighborsOnly,
     expansionDepth,
     setExpansionDepth,
     sortMode,
     setSortMode,
-    nodeTypeOptions,
-    nodes,
+    unitTypeOptions,
+    units,
     edges,
-    selectedNode,
-    selectedKnowledgeUnits,
+    selectedUnit,
     relatedNotes,
-    neighboringNodes,
+    neighboringUnits,
     paperMap,
     sessionMap,
     positions,
-    neighborNodeIds,
-    moveNode,
+    neighborUnitIds,
+    moveUnit,
     resetLayout,
-    onSelectNode: setSelectedNodeId
+    refreshGraph,
+    onSelectUnit: setSelectedUnitId
   }
 }
 

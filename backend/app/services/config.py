@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_SIMILARITY_MODEL = os.getenv("OPENAI_SIMILARITY_MODEL", "gpt-4.1-mini")
+OPENAI_MERGE_MODEL = os.getenv("OPENAI_MERGE_MODEL", "gpt-4.1-mini")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1")
 
