@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from .schemas import (
-    AgentDecisionLog,
     CanonicalDecision,
     CanonicalDecisionsPayload,
     CanonicalizationAction,
@@ -25,8 +24,6 @@ from .schemas import (
     RelationType,
     StructuredNote,
     StructuredNotesPayload,
-    SessionNote,
-    SessionNotesPayload,
     UnitRelationCandidate,
     UserModelSignal,
     UserSignal,
@@ -167,7 +164,7 @@ def _normalize_state(value: str, unit_type: UnitType) -> UserState:
     return UserState.MENTIONED
 
 
-def render_structured_note_markdown(note: StructuredNote | SessionNote) -> str:
+def render_structured_note_markdown(note: StructuredNote) -> str:
     facet_labels = {
         FacetType.DEFINITION.value: "定义",
         FacetType.MECHANISM.value: "机制",
@@ -275,7 +272,7 @@ def parse_qa(raw_text: str) -> ParseResult:
     return ParseResult(ok=True, data=answer, extracted_text=raw_text)
 
 
-def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | None:
+def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNote | None:
     raw_summary = _to_clean_text(item.get("summary"))
     raw_knowledge_unit = item.get("knowledge_unit") if isinstance(item.get("knowledge_unit"), dict) else {}
     raw_user_model_signal = item.get("user_model_signal") if isinstance(item.get("user_model_signal"), dict) else {}
@@ -323,7 +320,7 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
 
     dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
 
-    note = SessionNote(
+    note = StructuredNote(
         note_id=_to_clean_text(item.get("note_id")) or f"temp_{index:03d}",
         title=title,
         topic_key=topic_key,
@@ -349,54 +346,6 @@ def normalize_session_note(item: dict[str, Any], index: int) -> SessionNote | No
     )
     note.content = render_structured_note_markdown(note)
     return note
-
-
-def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNote | None:
-    normalized = normalize_session_note(item, index=index)
-    if normalized is None:
-        return None
-    return StructuredNote(
-        note_id=normalized.note_id,
-        title=normalized.title,
-        topic_key=normalized.topic_key,
-        summary=normalized.summary,
-        content=normalized.content,
-        knowledge_unit=normalized.knowledge_unit,
-        user_model_signal=normalized.user_model_signal,
-        open_questions=normalized.open_questions,
-        dedupe_hints=normalized.dedupe_hints,
-    )
-
-
-def parse_session_notes(raw_text: str, max_points: int | None = None) -> ParseResult:
-    json_text = extract_json_text(raw_text)
-    deserialize_result = deserialize_json(json_text)
-    if not deserialize_result.ok:
-        return ParseResult(ok=True, data=[], extracted_text=json_text, fallback_used=True, error=deserialize_result.error)
-
-    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
-    raw_notes = payload.get("notes") if isinstance(payload.get("notes"), list) else []
-    notes: list[SessionNote] = []
-    for index, raw_note in enumerate(raw_notes, start=1):
-        if not isinstance(raw_note, dict):
-            continue
-        normalized = normalize_session_note(raw_note, index=index)
-        if normalized:
-            notes.append(normalized)
-
-    if isinstance(max_points, int) and max_points > 0:
-        notes = notes[:max_points]
-
-    try:
-        validated = SessionNotesPayload(notes=notes)
-    except ValidationError as exc:
-        return ParseResult(
-            ok=False,
-            extracted_text=json_text,
-            error=ParseError(code="session_notes_schema_error", message="session notes validation failed", details={"errors": exc.errors()}),
-        )
-
-    return ParseResult(ok=True, data=validated.notes, extracted_text=json_text)
 
 
 def parse_structured_notes(raw_text: str, max_points: int | None = None) -> ParseResult:

@@ -302,7 +302,6 @@ function App() {
               onSelectFile={onLibraryUpload}
               onOpenProject={onOpenProject}
               loading={libraryLoading}
-              selectedFolderId={selectedFolderId}
               selectedFolderName={selectedFolderName}
               activeFolderIds={activeFolderIds}
               folders={folders}

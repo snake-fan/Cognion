@@ -77,14 +77,6 @@ class ModelCallParams(BaseModel):
     max_tokens: int | None = None
 
 
-class ModelInvocationRequest(BaseModel):
-    trace_id: str
-    session_id: str | None = None
-    agent_name: str
-    messages: list[ModelMessage]
-    params: ModelCallParams = Field(default_factory=ModelCallParams)
-
-
 class ModelInvocationResult(BaseModel):
     text: str
     raw_response: dict[str, Any] | None = None
@@ -142,10 +134,6 @@ class PaperMetadata(BaseModel):
     summary: str
 
 
-class QAResponse(BaseModel):
-    answer: str
-
-
 class KnowledgeFacet(BaseModel):
     facet_type: FacetType
     text: str
@@ -173,22 +161,6 @@ class UserModelSignal(BaseModel):
 class DedupeHints(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     semantic_fingerprint: list[str] = Field(default_factory=list)
-
-
-class SessionNote(BaseModel):
-    note_id: str
-    title: str
-    topic_key: str
-    summary: str
-    content: str
-    knowledge_unit: KnowledgeUnit
-    user_model_signal: UserModelSignal
-    open_questions: list[str] = Field(default_factory=list)
-    dedupe_hints: DedupeHints = Field(default_factory=DedupeHints)
-
-
-class SessionNotesPayload(BaseModel):
-    notes: list[SessionNote] = Field(default_factory=list)
 
 
 class UnitRelationCandidate(BaseModel):

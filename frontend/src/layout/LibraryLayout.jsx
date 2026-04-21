@@ -5,7 +5,6 @@ import ProjectGrid from '../components/ProjectGrid'
 function LibraryLayout({
   projects,
   loading,
-  selectedFolderId,
   selectedFolderName,
   folders,
   onSelectFile,

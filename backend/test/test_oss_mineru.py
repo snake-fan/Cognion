@@ -1,4 +1,3 @@
-import argparse
 import asyncio
 import sys
 from dataclasses import dataclass
