@@ -15,15 +15,6 @@ class UnitType(str, Enum):
     DISTINCTION = "distinction"
 
 
-class FacetType(str, Enum):
-    DEFINITION = "definition"
-    MECHANISM = "mechanism"
-    LIMITATION = "limitation"
-    COMPARISON = "comparison"
-    IMPLICATION = "implication"
-    QUESTION = "question"
-
-
 class UserState(str, Enum):
     MENTIONED = "mentioned"
     EXPOSED = "exposed"
@@ -31,15 +22,6 @@ class UserState(str, Enum):
     PARTIAL_UNDERSTANDING = "partial_understanding"
     UNDERSTOOD = "understood"
     MISALIGNED = "misaligned"
-
-
-class UserSignalType(str, Enum):
-    UNDERSTANDING = "understanding"
-    QUESTION = "question"
-    CONFUSION = "confusion"
-    MISCONCEPTION = "misconception"
-    DISTINCTION = "distinction"
-    BOUNDARY_AWARENESS = "boundary_awareness"
 
 
 class CanonicalizationAction(str, Enum):
@@ -134,28 +116,10 @@ class PaperMetadata(BaseModel):
     summary: str
 
 
-class KnowledgeFacet(BaseModel):
-    facet_type: FacetType
-    text: str
-
-
-class KnowledgeUnit(BaseModel):
-    unit_type: UnitType
-    term: str
-    core_claim: str
-    facets: list[KnowledgeFacet] = Field(default_factory=list)
-    related_terms: list[str] = Field(default_factory=list)
-
-
-class UserSignal(BaseModel):
-    signal_type: UserSignalType
-    text: str
-
-
-class UserModelSignal(BaseModel):
+class CognitiveState(BaseModel):
     state: UserState
     confidence: float
-    signals: list[UserSignal] = Field(default_factory=list)
+    mental_model: str = ""
 
 
 class DedupeHints(BaseModel):
@@ -174,9 +138,8 @@ class StructuredNote(BaseModel):
     topic_key: str
     summary: str
     content: str
-    knowledge_unit: KnowledgeUnit
-    user_model_signal: UserModelSignal
-    open_questions: list[str] = Field(default_factory=list)
+    cognitive_state: CognitiveState
+    follow_up_questions: list[str] = Field(default_factory=list)
     dedupe_hints: DedupeHints = Field(default_factory=DedupeHints)
 
 

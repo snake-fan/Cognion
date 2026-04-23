@@ -95,6 +95,8 @@ class Note(Base):
     topic_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cognitive_state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    follow_up_questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     structured_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
     session_id: Mapped[int | None] = mapped_column(

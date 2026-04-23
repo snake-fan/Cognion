@@ -6,6 +6,15 @@ import remarkMath from 'remark-math'
 import FolderTree from '../components/FolderTree'
 import { fetchPaperSessions } from '../services/api'
 
+const USER_STATE_LABELS = {
+  mentioned: '仅提及',
+  exposed: '已接触',
+  confused: '存在困惑',
+  partial_understanding: '部分理解',
+  understood: '基本理解',
+  misaligned: '理解偏差'
+}
+
 function NotesLayout({
   loading,
   folders,
@@ -142,6 +151,15 @@ function NotesLayout({
     } finally {
       setRenameLoading(false)
     }
+  }
+
+  function getNoteSummary(note) {
+    return note?.summary || note?.cognitive_state?.mental_model || ''
+  }
+
+  function getNoteStateLabel(note) {
+    const state = note?.cognitive_state?.state
+    return USER_STATE_LABELS[state] || ''
   }
 
   return (
@@ -296,7 +314,9 @@ function NotesLayout({
                           : '不绑定论文'}
                         {' | '}
                         {note.session_id ? `Session #${note.session_id}` : '不绑定会话'}
+                        {getNoteStateLabel(note) ? ` | ${getNoteStateLabel(note)}` : ''}
                       </div>
+                      {getNoteSummary(note) ? <div className="note-list-summary">{getNoteSummary(note)}</div> : null}
                     </button>
                   )}
                   <button
@@ -377,6 +397,20 @@ function NotesLayout({
                   </button>
                 </div>
                 <div className="notes-path-line">md 文件路径：{selectedNote.file_path}</div>
+                {selectedNote.summary ? <div className="notes-path-line">摘要：{selectedNote.summary}</div> : null}
+                {getNoteStateLabel(selectedNote) ? (
+                  <div className="notes-path-line">
+                    认知状态：{getNoteStateLabel(selectedNote)}
+                    {typeof selectedNote.cognitive_state?.confidence === 'number'
+                      ? ` · 信心 ${selectedNote.cognitive_state.confidence.toFixed(2)}`
+                      : ''}
+                  </div>
+                ) : null}
+                {Array.isArray(selectedNote.follow_up_questions) && selectedNote.follow_up_questions.length > 0 ? (
+                  <div className="notes-path-line">
+                    后续思考：{selectedNote.follow_up_questions.join(' / ')}
+                  </div>
+                ) : null}
                 <div className="notes-preview-panel markdown-body notes-preview-only">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>
                     {selectedNote.content || '暂无内容'}

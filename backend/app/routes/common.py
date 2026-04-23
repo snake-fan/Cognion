@@ -166,6 +166,8 @@ def note_to_dict(note: Note) -> dict[str, object]:
         "topic_key": note.topic_key,
         "summary": note.summary,
         "content": note.content,
+        "cognitive_state": note.cognitive_state if isinstance(note.cognitive_state, dict) else {},
+        "follow_up_questions": note.follow_up_questions if isinstance(note.follow_up_questions, list) else [],
         "structured_data": structured_data,
         "paper_id": note.paper_id,
         "session_id": note.session_id,

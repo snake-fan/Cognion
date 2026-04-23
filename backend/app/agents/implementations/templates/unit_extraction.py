@@ -11,6 +11,7 @@ def build_unit_extraction_user_template(note_json: str) -> str:
 1. 仅基于这条 note，抽取 1~5 个 knowledge units
 2. 每个 unit 必须表达一个清晰、可复用的知识点
 3. 只抽取 note 中明确出现或可直接概括出的内容，不补充 note 之外的信息
+4. 优先从 note 的完整正文 content 中抽取，再参考 summary 与认知状态字段辅助判断
 
 [输入 note]
 {note_json}

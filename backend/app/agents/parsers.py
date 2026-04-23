@@ -10,12 +10,10 @@ from .schemas import (
     CanonicalDecision,
     CanonicalDecisionsPayload,
     CanonicalizationAction,
+    CognitiveState,
     DedupeHints,
     ExtractedUnit,
     ExtractedUnitsPayload,
-    FacetType,
-    KnowledgeFacet,
-    KnowledgeUnit,
     PaperMetadata,
     ParseError,
     ParseResult,
@@ -25,9 +23,6 @@ from .schemas import (
     StructuredNote,
     StructuredNotesPayload,
     UnitRelationCandidate,
-    UserModelSignal,
-    UserSignal,
-    UserSignalType,
     UserState,
     UnitType,
 )
@@ -140,39 +135,38 @@ def _normalize_unit_type(value: str, fallback_text: str) -> UnitType:
     return UnitType.CONCEPT
 
 
-def _normalize_facet_type(value: str, text: str) -> FacetType:
-    if value in {item.value for item in FacetType}:
-        return FacetType(value)
-    if "?" in text or "？" in text:
-        return FacetType.QUESTION
-    return FacetType.DEFINITION
-
-
-def _normalize_signal_type(value: str, text: str) -> UserSignalType:
-    if value in {item.value for item in UserSignalType}:
-        return UserSignalType(value)
-    if "?" in text or "？" in text:
-        return UserSignalType.QUESTION
-    return UserSignalType.UNDERSTANDING
-
-
-def _normalize_state(value: str, unit_type: UnitType) -> UserState:
+def _normalize_state(value: str, *texts: str) -> UserState:
     if value in {item.value for item in UserState}:
         return UserState(value)
-    if unit_type == UnitType.QUESTION:
+    combined = " ".join(texts)
+    if "?" in combined or "？" in combined:
         return UserState.CONFUSED
     return UserState.MENTIONED
 
 
+def _extract_summary_from_markdown(content: str) -> str:
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(("- ", "* ", "> ")):
+            continue
+        if re.match(r"^\d+\.\s", line):
+            continue
+        return line if len(line) <= 120 else f"{line[:117].rstrip()}..."
+    return ""
+
+
+def _ensure_markdown_title(content: str, title: str) -> str:
+    text = content.strip()
+    if not text:
+        return ""
+    if re.match(r"^#\s+", text):
+        return text
+    return f"# {title}\n\n{text}"
+
+
 def render_structured_note_markdown(note: StructuredNote) -> str:
-    facet_labels = {
-        FacetType.DEFINITION.value: "定义",
-        FacetType.MECHANISM.value: "机制",
-        FacetType.LIMITATION.value: "局限",
-        FacetType.COMPARISON.value: "比较",
-        FacetType.IMPLICATION.value: "启发",
-        FacetType.QUESTION.value: "问题",
-    }
     state_labels = {
         UserState.MENTIONED.value: "仅提及",
         UserState.EXPOSED.value: "已接触",
@@ -181,44 +175,21 @@ def render_structured_note_markdown(note: StructuredNote) -> str:
         UserState.UNDERSTOOD.value: "基本理解",
         UserState.MISALIGNED.value: "理解偏差",
     }
-    signal_labels = {
-        UserSignalType.UNDERSTANDING.value: "理解",
-        UserSignalType.QUESTION.value: "提问",
-        UserSignalType.CONFUSION.value: "困惑",
-        UserSignalType.MISCONCEPTION.value: "误解",
-        UserSignalType.DISTINCTION.value: "区分尝试",
-        UserSignalType.BOUNDARY_AWARENESS.value: "边界意识",
-    }
     lines = [f"# {note.title}", ""]
     if note.summary:
-        lines.extend(["## 核心摘要", "", note.summary, ""])
+        lines.extend(["## 这条笔记在记录什么", "", note.summary, ""])
 
-    lines.extend(["## 知识单元", ""])
-    lines.append(f"- 类型：{note.knowledge_unit.unit_type.value}")
-    lines.append(f"- 核心术语：{note.knowledge_unit.term}")
-    lines.append(f"- 核心命题：{note.knowledge_unit.core_claim}")
-    if note.knowledge_unit.related_terms:
-        lines.append(f"- 相关术语：{' / '.join(note.knowledge_unit.related_terms)}")
+    lines.extend(["## 用户当前是怎么理解这个问题的", ""])
+    lines.append(f"- 认知状态：{state_labels.get(note.cognitive_state.state.value, note.cognitive_state.state.value)}")
+    lines.append(f"- 判断信心：{note.cognitive_state.confidence:.2f}")
     lines.append("")
-
-    if note.knowledge_unit.facets:
-        lines.extend(["## 关键面向", ""])
-        for facet in note.knowledge_unit.facets:
-            label = facet_labels.get(facet.facet_type.value, facet.facet_type.value)
-            lines.append(f"- {label}：{facet.text}")
+    if note.cognitive_state.mental_model:
+        lines.append(note.cognitive_state.mental_model)
         lines.append("")
 
-    lines.extend(["## 用户当前状态", ""])
-    lines.append(f"- 状态：{state_labels.get(note.user_model_signal.state.value, note.user_model_signal.state.value)}")
-    lines.append(f"- 判断信心：{note.user_model_signal.confidence:.2f}")
-    for signal in note.user_model_signal.signals:
-        label = signal_labels.get(signal.signal_type.value, signal.signal_type.value)
-        lines.append(f"- {label}：{signal.text}")
-    lines.append("")
-
-    if note.open_questions:
-        lines.extend(["## 待追踪问题", ""])
-        for question in note.open_questions:
+    if note.follow_up_questions:
+        lines.extend(["## 后续可以继续追问的问题", ""])
+        for question in note.follow_up_questions:
             lines.append(f"- {question}")
         lines.append("")
 
@@ -274,49 +245,17 @@ def parse_qa(raw_text: str) -> ParseResult:
 
 def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNote | None:
     raw_summary = _to_clean_text(item.get("summary"))
-    raw_knowledge_unit = item.get("knowledge_unit") if isinstance(item.get("knowledge_unit"), dict) else {}
-    raw_user_model_signal = item.get("user_model_signal") if isinstance(item.get("user_model_signal"), dict) else {}
-
-    term = _to_clean_text(raw_knowledge_unit.get("term"))
-    core_claim = _to_clean_text(raw_knowledge_unit.get("core_claim"))
-    fallback_text = raw_summary or core_claim or term
-    title = _to_clean_text(item.get("title")) or (term or f"关键问题-{index}")
+    raw_content = _to_clean_text(item.get("content"))
+    raw_cognitive_state = item.get("cognitive_state") if isinstance(item.get("cognitive_state"), dict) else {}
+    title = _to_clean_text(item.get("title")) or f"认知笔记-{index}"
     topic_key = _normalize_topic_key(_to_clean_text(item.get("topic_key")) or title)
     if not title or not topic_key:
         return None
 
-    unit_type = _normalize_unit_type(_to_clean_text(raw_knowledge_unit.get("unit_type")), fallback_text)
-    summary = raw_summary or core_claim
-
-    facets: list[KnowledgeFacet] = []
-    if isinstance(raw_knowledge_unit.get("facets"), list):
-        for raw_facet in raw_knowledge_unit.get("facets"):
-            if not isinstance(raw_facet, dict):
-                continue
-            text = _to_clean_text(raw_facet.get("text"))
-            if not text:
-                continue
-            facets.append(
-                KnowledgeFacet(
-                    facet_type=_normalize_facet_type(_to_clean_text(raw_facet.get("facet_type")), text),
-                    text=text,
-                )
-            )
-
-    signals: list[UserSignal] = []
-    if isinstance(raw_user_model_signal.get("signals"), list):
-        for raw_signal in raw_user_model_signal.get("signals"):
-            if not isinstance(raw_signal, dict):
-                continue
-            text = _to_clean_text(raw_signal.get("text"))
-            if not text:
-                continue
-            signals.append(
-                UserSignal(
-                    signal_type=_normalize_signal_type(_to_clean_text(raw_signal.get("signal_type")), text),
-                    text=text,
-                )
-            )
+    follow_up_questions = _to_string_list(item.get("follow_up_questions") or item.get("open_questions"))
+    mental_model = _to_clean_text(raw_cognitive_state.get("mental_model"))
+    content = _ensure_markdown_title(raw_content, title)
+    summary = raw_summary or _extract_summary_from_markdown(content) or mental_model or title
 
     dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
 
@@ -326,25 +265,24 @@ def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNot
         topic_key=topic_key,
         summary=summary,
         content="",
-        knowledge_unit=KnowledgeUnit(
-            unit_type=unit_type,
-            term=term or title,
-            core_claim=core_claim or summary,
-            facets=facets,
-            related_terms=_to_string_list(raw_knowledge_unit.get("related_terms")),
+        cognitive_state=CognitiveState(
+            state=_normalize_state(
+                _to_clean_text(raw_cognitive_state.get("state")),
+                mental_model,
+                summary,
+                " ".join(follow_up_questions),
+                content,
+            ),
+            confidence=_to_confidence(raw_cognitive_state.get("confidence"), default=0.65),
+            mental_model=mental_model or summary,
         ),
-        user_model_signal=UserModelSignal(
-            state=_normalize_state(_to_clean_text(raw_user_model_signal.get("state")), unit_type),
-            confidence=_to_confidence(raw_user_model_signal.get("confidence"), default=0.65),
-            signals=signals,
-        ),
-        open_questions=_to_string_list(item.get("open_questions")),
+        follow_up_questions=follow_up_questions,
         dedupe_hints=DedupeHints(
             aliases=_to_string_list(dedupe_hints.get("aliases")),
             semantic_fingerprint=_to_string_list(dedupe_hints.get("semantic_fingerprint"))[:6],
         ),
     )
-    note.content = render_structured_note_markdown(note)
+    note.content = content or render_structured_note_markdown(note)
     return note
 
 

@@ -459,8 +459,19 @@ textarea {
   color: #9a9a9a;
 }
 
+.note-list-summary {
+  margin-top: 6px;
+  color: #bdbdbd;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .note-list-item.active .note-list-meta {
   color: #cde4f5;
+}
+
+.note-list-item.active .note-list-summary {
+  color: #e6f3ff;
 }
 
 .notes-editor-panel {

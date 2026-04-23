@@ -8,6 +8,15 @@ import WorkspaceLayout from './WorkspaceLayout'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
+const USER_STATE_LABELS = {
+  mentioned: '仅提及',
+  exposed: '已接触',
+  confused: '存在困惑',
+  partial_understanding: '部分理解',
+  understood: '基本理解',
+  misaligned: '理解偏差'
+}
+
 function ReaderWorkspace({
   isResizing,
   rightCollapsed,
@@ -133,12 +142,26 @@ function ReaderWorkspace({
     })
   }
 
-  function getNotePreview(content) {
-    const plain = (content || '').replace(/^#+\s*/gm, '').replace(/\n+/g, ' ').trim()
+  function getNotePreview(note) {
+    const structuredSummary =
+      note?.summary ||
+      note?.cognitive_state?.mental_model ||
+      (Array.isArray(note?.follow_up_questions) && note.follow_up_questions.length > 0
+        ? note.follow_up_questions[0]
+        : '')
+    const plain = (structuredSummary || note?.content || '')
+      .replace(/^#+\s*/gm, '')
+      .replace(/\n+/g, ' ')
+      .trim()
     if (!plain) {
       return '暂无内容'
     }
     return plain.length > 88 ? `${plain.slice(0, 88)}...` : plain
+  }
+
+  function getNoteStateLabel(note) {
+    const state = note?.cognitive_state?.state
+    return USER_STATE_LABELS[state] || ''
   }
 
   useEffect(() => {
@@ -361,8 +384,11 @@ function ReaderWorkspace({
                         className={`session-note-card ${focusedSessionNoteId === note.id ? 'focused' : ''}`}
                       >
                         <h4>{note.title}</h4>
-                        <p>{getNotePreview(note.content)}</p>
-                        <span>{formatSessionTime(note.updated_at)}</span>
+                        <p>{getNotePreview(note)}</p>
+                        <span>
+                          {getNoteStateLabel(note) ? `${getNoteStateLabel(note)} | ` : ''}
+                          {formatSessionTime(note.updated_at)}
+                        </span>
                       </article>
                     ))}
                   </div>

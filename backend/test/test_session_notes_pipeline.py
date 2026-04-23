@@ -59,21 +59,14 @@ class SessionNotesPipelineTests(unittest.TestCase):
               "title": "Attention-用户对作用有部分理解",
               "topic_key": "attention-role",
               "summary": "用户知道 attention 用于聚焦信息，但还没有完全理解其机制。",
-              "knowledge_unit": {
-                "unit_type": "concept",
-                "term": "attention",
-                "core_claim": "attention 用于在编码时聚焦关键部分",
-                "facets": [{"facet_type": "mechanism", "text": "按相关性分配关注"}],
-                "related_terms": ["self-attention"]
-              },
-              "user_model_signal": {
+              "cognitive_state": {
                 "state": "partial_understanding",
                 "confidence": 0.8,
-                "signals": [{"signal_type": "understanding", "text": "用户能说出作用但还没说明机制"}]
+                "mental_model": "用户知道 attention 用于聚焦信息，但对内部计算还没有清晰模型。"
               },
-              "evidence": [{"source": "user", "quote": "是不是用来关注重要词的"}],
-              "open_questions": ["权重是如何算出来的？"],
-              "dedupe_hints": {"aliases": ["注意力机制"], "semantic_fingerprint": ["focus", "weights", "tokens"]}
+              "follow_up_questions": ["权重是如何算出来的？"],
+              "dedupe_hints": {"aliases": ["注意力机制"], "semantic_fingerprint": ["focus", "weights", "tokens"]},
+              "content": "# Attention-用户对作用有部分理解\\n\\n## 用户当前是怎么理解这个问题的\\n用户知道 attention 用于聚焦信息。\\n\\n## 分析与推进\\n这个理解还停留在作用层，尚未进入机制层。\\n\\n## 后续可以继续追问\\n- 权重是如何算出来的？"
             }
           ]
         }
@@ -83,7 +76,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertEqual(len(parsed.data), 1)
         note = parsed.data[0]
         self.assertEqual(note.note_id, "temp_001")
-        self.assertIn("用户当前状态", note.content)
+        self.assertIn("用户当前是怎么理解这个问题的", note.content)
         self.assertNotIn("关键证据", note.content)
         self.assertNotIn("evidence", note.model_dump(mode="json"))
 
@@ -128,7 +121,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertNotIn("evidence", relation.data[0].model_dump(mode="json"))
 
     @patch(
-        "backend.app.services.knowledge_graph._rerank_similarity_candidates",
+        "backend.app.services.knowledge_graph.matching._rerank_similarity_candidates",
         side_effect=lambda *, candidate_groups, **kwargs: candidate_groups,
     )
     def test_retrieve_candidates_prefers_same_paper(self, _mock_rerank):
@@ -184,19 +177,12 @@ class SessionNotesPipelineTests(unittest.TestCase):
                 "topic_key": "attention-note",
                 "summary": "summary",
                 "content": "# Attention-note",
-                "knowledge_unit": {
-                    "unit_type": "concept",
-                    "term": "attention",
-                    "core_claim": "focus",
-                    "facets": [],
-                    "related_terms": [],
-                },
-                "user_model_signal": {
+                "cognitive_state": {
                     "state": "partial_understanding",
                     "confidence": 0.7,
-                    "signals": [],
+                    "mental_model": "用户知道它会聚焦重要信息。",
                 },
-                "open_questions": [],
+                "follow_up_questions": [],
                 "dedupe_hints": {"aliases": [], "semantic_fingerprint": []},
             }
         )
@@ -261,7 +247,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertEqual(edge.from_unit_id, results[0]["knowledge_unit_ids"][0])
         self.assertEqual(edge.to_unit_id, results[0]["knowledge_unit_ids"][0])
 
-    @patch("backend.app.services.knowledge_graph._merge_existing_knowledge_unit_with_llm", return_value=None)
+    @patch("backend.app.services.knowledge_graph.apply._merge_existing_knowledge_unit_with_llm", return_value=None)
     def test_merge_updates_existing_unit_with_new_information(self, _mock_merge):
         note = StructuredNote.model_validate(
             {
@@ -270,19 +256,12 @@ class SessionNotesPipelineTests(unittest.TestCase):
                 "topic_key": "attention-merge",
                 "summary": "new summary",
                 "content": "# Attention-merge",
-                "knowledge_unit": {
-                    "unit_type": "concept",
-                    "term": "attention",
-                    "core_claim": "new computation",
-                    "facets": [],
-                    "related_terms": [],
-                },
-                "user_model_signal": {
+                "cognitive_state": {
                     "state": "partial_understanding",
                     "confidence": 0.7,
-                    "signals": [],
+                    "mental_model": "用户开始把 attention 和新的计算过程联系起来。",
                 },
-                "open_questions": [],
+                "follow_up_questions": [],
                 "dedupe_hints": {"aliases": [], "semantic_fingerprint": []},
             }
         )
@@ -364,7 +343,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertEqual(existing.payload["slots"]["equation"], "QK^T")
         self.assertNotIn("evidence", existing.payload)
 
-    @patch("backend.app.services.knowledge_graph._merge_existing_knowledge_unit_with_llm")
+    @patch("backend.app.services.knowledge_graph.apply._merge_existing_knowledge_unit_with_llm")
     def test_merge_uses_llm_structured_output_when_available(self, mock_merge):
         mock_merge.return_value = {
             "unit_type": "concept",
@@ -387,19 +366,12 @@ class SessionNotesPipelineTests(unittest.TestCase):
                 "topic_key": "attention-llm-merge",
                 "summary": "incoming summary",
                 "content": "# Attention-llm-merge",
-                "knowledge_unit": {
-                    "unit_type": "concept",
-                    "term": "attention",
-                    "core_claim": "incoming claim",
-                    "facets": [],
-                    "related_terms": [],
-                },
-                "user_model_signal": {
+                "cognitive_state": {
                     "state": "partial_understanding",
                     "confidence": 0.7,
-                    "signals": [],
+                    "mental_model": "用户正在把 attention 理解为一种相似度比较过程。",
                 },
-                "open_questions": [],
+                "follow_up_questions": [],
                 "dedupe_hints": {"aliases": [], "semantic_fingerprint": []},
             }
         )
@@ -477,19 +449,12 @@ class SessionNotesPipelineTests(unittest.TestCase):
                 "topic_key": "attention-reuse",
                 "summary": "reuse summary",
                 "content": "# Attention-reuse",
-                "knowledge_unit": {
-                    "unit_type": "concept",
-                    "term": "attention",
-                    "core_claim": "ignored new claim",
-                    "facets": [],
-                    "related_terms": [],
-                },
-                "user_model_signal": {
+                "cognitive_state": {
                     "state": "partial_understanding",
                     "confidence": 0.7,
-                    "signals": [],
+                    "mental_model": "用户这次只是再次提到 attention，没有新增稳定理解。",
                 },
-                "open_questions": [],
+                "follow_up_questions": [],
                 "dedupe_hints": {"aliases": [], "semantic_fingerprint": []},
             }
         )

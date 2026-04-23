@@ -18,21 +18,14 @@ class SessionNotesParserTests(unittest.TestCase):
               "title": "Attention-用户对作用有部分理解",
               "topic_key": "attention-role",
               "summary": "用户知道 attention 用于聚焦信息，但还没有完全理解其机制。",
-              "knowledge_unit": {
-                "unit_type": "concept",
-                "term": "attention",
-                "core_claim": "attention 用于在编码时聚焦关键部分",
-                "facets": [{"facet_type": "mechanism", "text": "按相关性分配关注"}],
-                "related_terms": ["self-attention"]
-              },
-              "user_model_signal": {
+              "cognitive_state": {
                 "state": "partial_understanding",
                 "confidence": 0.8,
-                "signals": [{"signal_type": "understanding", "text": "用户能说出作用但还没说明机制"}]
+                "mental_model": "用户把 attention 理解成一种帮助模型关注重点信息的机制，但还说不清权重如何形成。"
               },
-              "evidence": [{"source": "user", "quote": "是不是用来关注重要词的"}],
-              "open_questions": ["权重是如何算出来的？"],
-              "dedupe_hints": {"aliases": ["注意力机制"], "semantic_fingerprint": ["focus", "weights", "tokens"]}
+              "follow_up_questions": ["权重是如何算出来的？"],
+              "dedupe_hints": {"aliases": ["注意力机制"], "semantic_fingerprint": ["focus", "weights", "tokens"]},
+              "content": "# Attention-用户对作用有部分理解\\n\\n## 用户当前是怎么理解这个问题的\\n用户觉得 attention 的作用是关注重要词。\\n\\n## 分析与推进\\n这个理解抓住了用途，但还停留在功能层，缺少对权重如何形成的机制性认识。\\n\\n## 后续可以继续追问\\n- 权重是如何算出来的？"
             }
           ]
         }
@@ -41,7 +34,8 @@ class SessionNotesParserTests(unittest.TestCase):
         self.assertTrue(parsed.ok)
         self.assertEqual(len(parsed.data), 1)
         self.assertEqual(parsed.data[0].note_id, "temp_001")
-        self.assertIn("用户当前状态", parsed.data[0].content)
+        self.assertIn("用户当前是怎么理解这个问题的", parsed.data[0].content)
+        self.assertEqual(parsed.data[0].cognitive_state.mental_model[:2], "用户")
         self.assertNotIn("关键证据", parsed.data[0].content)
         self.assertNotIn("evidence", parsed.data[0].model_dump(mode="json"))
 

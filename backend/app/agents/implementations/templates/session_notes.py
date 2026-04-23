@@ -1,5 +1,5 @@
 def build_session_notes_system_template() -> str:
-    return "你是 Session Note Agent，负责把对话整理成适合后续知识抽取的高质量结构化 note。"
+    return "你是 Session Note Agent，负责把对话整理成用户可以直接回看的高质量认知笔记。"
 
 
 def build_session_notes_user_template(
@@ -12,13 +12,7 @@ def build_session_notes_user_template(
 ) -> str:
     return f"""
 你是“用户认知笔记抽取助手”。
-你的任务不是总结论文，也不是复述 assistant 的回答，而是从单个 Session 对话中，抽取出“对后续用户知识图谱有价值”的认知笔记对象。
-
-这些认知笔记对象将用于：
-1. 后续逐条 note 的知识单元抽取
-2. 跟踪用户对知识点的理解状态
-3. 支撑知识点去重、聚合与关系判断
-4. 生成后续个性化追问与解释
+你的任务不是总结论文，也不是复述 assistant 的回答，而是从单个 Session 对话中，抽取出“用户自己回看时也有价值”的完整认知笔记。
 
 你必须严格遵守以下原则：
 - 只能依据本次 Session 对话内容输出
@@ -27,6 +21,7 @@ def build_session_notes_user_template(
 - 宁缺毋滥，没有合适内容时返回空数组
 - 一条 note 只表达一个核心知识点
 - 若与既有 topic_key 重复或语义高度重复，则不要生成
+- 优先保证笔记本身可读、自然、有分析感，而不是为了后续流程去拆碎
 
 [论文信息]
 标题: {paper_title or '未知'}
@@ -75,40 +70,38 @@ def build_session_notes_user_template(
 - 概括这条 note 的核心价值
 - 必须体现用户当前认知状态，而不是只写客观知识
 
-5. knowledge_unit
-必须是对象，包含：
-- unit_type: 只能是 "concept" | "claim" | "method" | "question" | "distinction"
-- term: 该知识点最核心的术语、对象或主题
-- core_claim: 单句核心命题
-- facets: 数组，可包含多个 facet，对每个 facet 输出：
-  - facet_type: 只能是 "definition" | "mechanism" | "limitation" | "comparison" | "implication" | "question"
-  - text: 该 facet 的内容
-- related_terms: 与该知识点直接相关的术语数组，没有可为空数组
-
-6. user_model_signal
+5. cognitive_state
 必须是对象，包含：
 - state: 只能是 "mentioned" | "exposed" | "confused" | "partial_understanding" | "understood" | "misaligned"
 - confidence: 0 到 1 的小数，表示你对这个 state 判断的把握
-- signals: 数组，每项包含：
-  - signal_type: 只能是 "understanding" | "question" | "confusion" | "misconception" | "distinction" | "boundary_awareness"
-  - text: 用户当前认知状态的具体说明
+- mental_model: 1~2 句话，说明用户当前是怎么理解这个问题的
+- 你在判断 state 和 mental_model 时，内部必须有清晰依据，但不要把这些依据作为单独字段输出
 
-7. open_questions
+6. follow_up_questions
 - 数组
 - 写这条知识点当前仍未解决、但值得后续追踪的问题
 - 没有可为空数组
 
-8. dedupe_hints
+7. dedupe_hints
 必须是对象，包含：
 - aliases: 该知识点可能的别名数组
 - semantic_fingerprint: 3~6 个短语，用来表达这条知识点的语义特征，便于去重
 
+8. content
+- 必须是完整 markdown 笔记正文
+- 写出来要像用户会保留的一篇笔记，而不是字段拼接结果
+- 重点是“有结构地讲清一个问题”，能看出用户目前的理解、分析推进和仍待打开的问题
+- 尽量包含以下三类内容，但这是软限制，不要机械套模板：
+  - 用户当前是怎么理解这个问题的
+  - 对这个理解的分析、推进、卡点或边界
+  - 后续还值得继续思考或追问的方向
+
 [重要限制]
-- 不要把一条 note 写成整篇摘要
+- 不要把一条 note 写成整篇论文摘要
 - 不要把 assistant 的完整答案原样搬进去
 - 不要假装用户已经理解了对话里没表现出来的内容
-- 若用户只是提出问题，没有形成理解，也可以生成，但 unit_type 更适合为 "question" 或 state 为 "confused"
-- 若用户在尝试区分两个相近概念，优先考虑 unit_type = "distinction"
+- 不要为了“结构化”而把正文写成生硬字段堆砌
+- 若用户只是提出问题，没有形成理解，也可以生成，但要把笔记写成“这个问题暴露了怎样的认知边界”
 
 [数量要求]
 - 最多输出 {max_points_line} 条
@@ -125,33 +118,17 @@ def build_session_notes_user_template(
       "title": "术语-结论",
       "topic_key": "term-core-point",
       "summary": "1~2 句话总结这条认知笔记的价值",
-      "knowledge_unit": {{
-        "unit_type": "concept",
-        "term": "核心术语",
-        "core_claim": "单句核心命题",
-        "facets": [
-          {{
-            "facet_type": "definition",
-            "text": "..."
-          }}
-        ],
-        "related_terms": []
-      }},
-      "user_model_signal": {{
+      "cognitive_state": {{
         "state": "partial_understanding",
         "confidence": 0.76,
-        "signals": [
-          {{
-            "signal_type": "understanding",
-            "text": "..."
-          }}
-        ]
+        "mental_model": "用户已经能说出这个机制的大致作用，但仍把核心计算过程理解成了比较模糊的“关注重点”。"
       }},
-      "open_questions": [],
+      "follow_up_questions": [],
       "dedupe_hints": {{
         "aliases": [],
         "semantic_fingerprint": []
-      }}
+      }},
+      "content": "# 术语-结论\\n\\n## 用户当前是怎么理解这个问题的\\n...\\n\\n## 分析与推进\\n...\\n\\n## 后续可以继续追问\\n- ..."
     }}
   ]
 }}
