@@ -136,23 +136,7 @@ async def generate_notes_for_session(
         normalized_topic_key = normalize_topic_key(candidate_topic_key or title)
         cognitive_state = item.get("cognitive_state") if isinstance(item.get("cognitive_state"), dict) else {}
         follow_up_questions = item.get("follow_up_questions") if isinstance(item.get("follow_up_questions"), list) else []
-        structured_data = {
-            "note_schema_version": 3,
-            "structured_note": {
-                "note_id": note_id,
-                "title": title,
-                "topic_key": normalized_topic_key,
-                "summary": summary,
-                "cognitive_state": cognitive_state,
-                "follow_up_questions": follow_up_questions,
-                "dedupe_hints": item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {},
-                "content": content,
-            },
-            "agent_run_ref": {
-                "trace_id": str(pipeline_result.get("trace_id") or ""),
-                "pipeline": "session_notes_pipeline",
-            },
-        }
+        dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
 
         if not title or not content:
             skipped_topics.append(
@@ -184,7 +168,7 @@ async def generate_notes_for_session(
                 content=content,
                 cognitive_state=cognitive_state,
                 follow_up_questions=follow_up_questions,
-                structured_data=structured_data,
+                dedupe_hints=dedupe_hints,
                 paper_id=paper_id,
                 session_id=session_id,
                 folder_id=folder_id,
@@ -222,11 +206,7 @@ async def generate_notes_for_session(
             notes_by_ref=notes_by_ref,
         )
         for note in created_notes:
-            next_structured = dict(note.structured_data) if isinstance(note.structured_data, dict) else {}
-            next_run_ref = next_structured.get("agent_run_ref") if isinstance(next_structured.get("agent_run_ref"), dict) else {}
-            next_run_ref["agent_run_id"] = agent_run_id
-            next_structured["agent_run_ref"] = next_run_ref
-            note.structured_data = next_structured
+            note.agent_run_id = agent_run_id
 
     db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
     db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
@@ -405,7 +385,8 @@ def create_note(
         content=content,
         cognitive_state={},
         follow_up_questions=[],
-        structured_data={},
+        dedupe_hints={},
+        agent_run_id=None,
         paper_id=paper_id,
         session_id=session_id,
         folder_id=folder_id,
@@ -471,52 +452,13 @@ def update_note(
 
     if content is not None:
         note.content = content
-        if isinstance(note.structured_data, dict) and note.structured_data:
-            next_structured_data = dict(note.structured_data)
-            structured_note = (
-                dict(next_structured_data.get("structured_note"))
-                if isinstance(next_structured_data.get("structured_note"), dict)
-                else {}
-            )
-            if structured_note:
-                structured_note["content"] = note.content
-                next_structured_data["structured_note"] = structured_note
-                note.structured_data = next_structured_data
 
     if title_changed:
         previous_topic_key = normalize_topic_key(note.topic_key or previous_title)
         if not note.topic_key or note.topic_key == previous_topic_key:
             note.topic_key = normalize_topic_key(note.title)
-        if isinstance(note.structured_data, dict) and note.structured_data:
-            next_structured_data = dict(note.structured_data)
-            structured_note = (
-                dict(next_structured_data.get("structured_note"))
-                if isinstance(next_structured_data.get("structured_note"), dict)
-                else {}
-            )
-            if structured_note:
-                structured_note["title"] = note.title
-                if structured_note.get("topic_key") == previous_topic_key:
-                    structured_note["topic_key"] = note.topic_key
-                next_structured_data["structured_note"] = structured_note
-            else:
-                next_structured_data["title"] = note.title
-                if next_structured_data.get("topic_key") == previous_topic_key:
-                    next_structured_data["topic_key"] = note.topic_key
-            note.structured_data = next_structured_data
         if content is None:
             note.content = sync_markdown_title(note.content, note.title)
-            if isinstance(note.structured_data, dict) and note.structured_data:
-                next_structured_data = dict(note.structured_data)
-                structured_note = (
-                    dict(next_structured_data.get("structured_note"))
-                    if isinstance(next_structured_data.get("structured_note"), dict)
-                    else {}
-                )
-                if structured_note:
-                    structured_note["content"] = note.content
-                    next_structured_data["structured_note"] = structured_note
-                    note.structured_data = next_structured_data
 
     if title_changed:
         note.file_path = rename_note_markdown_file(note.file_path, note.title)

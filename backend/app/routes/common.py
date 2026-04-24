@@ -158,7 +158,6 @@ def folder_segments(db: Session, folder_id: int | None) -> list[str]:
 
 
 def note_to_dict(note: Note) -> dict[str, object]:
-    structured_data = note.structured_data if isinstance(note.structured_data, dict) else {}
     return {
         "id": note.id,
         "note_id": note.note_id,
@@ -168,9 +167,10 @@ def note_to_dict(note: Note) -> dict[str, object]:
         "content": note.content,
         "cognitive_state": note.cognitive_state if isinstance(note.cognitive_state, dict) else {},
         "follow_up_questions": note.follow_up_questions if isinstance(note.follow_up_questions, list) else [],
-        "structured_data": structured_data,
+        "dedupe_hints": note.dedupe_hints if isinstance(note.dedupe_hints, dict) else {},
         "paper_id": note.paper_id,
         "session_id": note.session_id,
+        "agent_run_id": note.agent_run_id,
         "folder_id": note.folder_id,
         "file_path": note.file_path,
         "created_at": note.created_at.isoformat() if isinstance(note.created_at, datetime) else "",
@@ -276,8 +276,8 @@ def knowledge_unit_to_dict(unit: KnowledgeUnit) -> dict[str, object]:
         "core_claim": unit.core_claim,
         "summary": unit.summary,
         "aliases": unit.aliases if isinstance(unit.aliases, list) else [],
-        "semantic_fingerprint": unit.semantic_fingerprint if isinstance(unit.semantic_fingerprint, list) else [],
-        "payload": unit.payload if isinstance(unit.payload, dict) else {},
+        "related_terms": unit.related_terms if isinstance(unit.related_terms, list) else [],
+        "slots": unit.slots if isinstance(unit.slots, dict) else {},
         "created_at": unit.created_at.isoformat() if isinstance(unit.created_at, datetime) else "",
         "updated_at": unit.updated_at.isoformat() if isinstance(unit.updated_at, datetime) else "",
     }

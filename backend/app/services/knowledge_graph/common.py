@@ -120,28 +120,18 @@ def _prepare_similarity_texts(values: Iterable[object]) -> list[str]:
     return [_truncate_similarity_text(item) for item in _merge_unique_strings(values, limit=2000)]
 
 
-def _sanitize_knowledge_unit_payload(
-    payload: dict[str, object] | None,
-    *,
-    source_paper_ids: list[str] | None = None,
-) -> dict[str, object]:
-    source = payload if isinstance(payload, dict) else {}
+def _sanitize_related_terms(*groups: Iterable[object], limit: int = 32) -> list[str]:
+    return _merge_unique_strings(*groups, limit=limit)
+
+
+def _sanitize_slots(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+
     sanitized: dict[str, object] = {}
-
-    related_terms = source.get("related_terms")
-    if isinstance(related_terms, list):
-        sanitized["related_terms"] = related_terms
-
-    slots = source.get("slots")
-    if isinstance(slots, dict):
-        sanitized["slots"] = slots
-
-    merged_source_paper_ids = _merge_unique_strings(
-        source.get("source_paper_ids") if isinstance(source.get("source_paper_ids"), list) else [],
-        source_paper_ids or [],
-        limit=32,
-    )
-    if merged_source_paper_ids:
-        sanitized["source_paper_ids"] = merged_source_paper_ids
-
+    for key, item in value.items():
+        clean_key = _clean_text(key)
+        if not clean_key or item in (None, "", [], {}):
+            continue
+        sanitized[clean_key] = item
     return sanitized

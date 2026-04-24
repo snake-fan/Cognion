@@ -133,7 +133,8 @@ def serialize_knowledge_unit_candidate(unit: KnowledgeUnit, *, score: float = 0.
         core_claim=unit.core_claim,
         summary=unit.summary,
         aliases=unit.aliases if isinstance(unit.aliases, list) else [],
-        semantic_fingerprint=unit.semantic_fingerprint if isinstance(unit.semantic_fingerprint, list) else [],
+        related_terms=unit.related_terms if isinstance(unit.related_terms, list) else [],
+        slots=unit.slots if isinstance(unit.slots, dict) else {},
         score=score,
         source=source,
     ).model_dump(mode="json")
@@ -163,7 +164,7 @@ def retrieve_candidate_units_for_canonicalization(
         references = _merge_unique_strings(
             [existing.canonical_key, existing.term, existing.core_claim, existing.summary],
             existing.aliases if isinstance(existing.aliases, list) else [],
-            existing.semantic_fingerprint if isinstance(existing.semantic_fingerprint, list) else [],
+            existing.related_terms if isinstance(existing.related_terms, list) else [],
         )
         heuristic_score = _best_similarity(query_texts, references)
         if heuristic_score <= 0:
@@ -225,7 +226,7 @@ def filter_existing_knowledge_units_for_note(
                 candidate.get("summary"),
             ],
             candidate.get("aliases") if isinstance(candidate.get("aliases"), list) else [],
-            candidate.get("semantic_fingerprint") if isinstance(candidate.get("semantic_fingerprint"), list) else [],
+            candidate.get("related_terms") if isinstance(candidate.get("related_terms"), list) else [],
         )
         heuristic_score = _best_similarity(query_texts, references)
         if heuristic_score <= 0:

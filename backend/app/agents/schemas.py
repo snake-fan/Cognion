@@ -171,7 +171,8 @@ class RetrievedUnitCandidate(BaseModel):
     core_claim: str = ""
     summary: str = ""
     aliases: list[str] = Field(default_factory=list)
-    semantic_fingerprint: list[str] = Field(default_factory=list)
+    related_terms: list[str] = Field(default_factory=list)
+    slots: dict[str, Any] = Field(default_factory=dict)
     score: float = 0.0
     source: str = "global"
 

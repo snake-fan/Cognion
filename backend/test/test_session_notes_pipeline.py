@@ -133,8 +133,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             core_claim="focus on tokens",
             summary="attention summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={},
+            related_terms=["weights"],
+            slots={},
         )
         other_paper = KnowledgeUnit(
             paper_id="paper-2",
@@ -144,8 +144,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             core_claim="focus on tokens",
             summary="attention summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={},
+            related_terms=["weights"],
+            slots={},
         )
         self.db.add_all([same_paper, other_paper])
         self.db.flush()
@@ -192,7 +192,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
             topic_key="attention-note",
             summary="summary",
             content="# Attention-note",
-            structured_data={},
+            dedupe_hints={},
             paper_id="paper-1",
             session_id=1,
             folder_id=None,
@@ -271,7 +271,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
             topic_key="attention-merge",
             summary="new summary",
             content="# Attention-merge",
-            structured_data={},
+            dedupe_hints={},
             paper_id="paper-1",
             session_id=1,
             folder_id=None,
@@ -285,12 +285,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             core_claim="old focus",
             summary="old summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={
-                "related_terms": ["self-attention"],
-                "slots": {"scope": "token"},
-                "source_paper_ids": ["paper-1"],
-            },
+            related_terms=["weights", "self-attention"],
+            slots={"scope": "token"},
         )
         self.db.add_all([persisted_note, existing])
         self.db.flush()
@@ -338,10 +334,9 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertIn("old summary", existing.summary)
         self.assertIn("new summary", existing.summary)
         self.assertIn("scaled dot-product attention", existing.aliases)
-        self.assertIn("softmax", existing.semantic_fingerprint)
-        self.assertEqual(existing.payload["slots"]["scope"], "token")
-        self.assertEqual(existing.payload["slots"]["equation"], "QK^T")
-        self.assertNotIn("evidence", existing.payload)
+        self.assertIn("softmax", existing.related_terms)
+        self.assertEqual(existing.slots["scope"], "token")
+        self.assertEqual(existing.slots["equation"], "QK^T")
 
     @patch("backend.app.services.knowledge_graph.apply._merge_existing_knowledge_unit_with_llm")
     def test_merge_uses_llm_structured_output_when_available(self, mock_merge):
@@ -352,12 +347,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             "core_claim": "attention computes similarity scores and normalizes them",
             "summary": "merged summary",
             "aliases": ["attention", "注意力机制"],
-            "semantic_fingerprint": ["weights", "softmax"],
-            "payload": {
-                "related_terms": ["self-attention", "transformer"],
-                "slots": {"equation": "softmax(QK^T / sqrt(d))"},
-                "source_paper_ids": ["paper-1"],
-            },
+            "related_terms": ["weights", "softmax", "self-attention", "transformer"],
+            "slots": {"equation": "softmax(QK^T / sqrt(d))"},
         }
         note = StructuredNote.model_validate(
             {
@@ -381,7 +372,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
             topic_key="attention-llm-merge",
             summary="incoming summary",
             content="# Attention-llm-merge",
-            structured_data={},
+            dedupe_hints={},
             paper_id="paper-1",
             session_id=1,
             folder_id=None,
@@ -395,8 +386,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             core_claim="old focus",
             summary="old summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={"related_terms": ["self-attention"], "slots": {}, "source_paper_ids": ["paper-1"]},
+            related_terms=["weights", "self-attention"],
+            slots={},
         )
         self.db.add_all([persisted_note, existing])
         self.db.flush()
@@ -438,8 +429,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertEqual(existing.canonical_key, "scaled-dot-product-attention")
         self.assertEqual(existing.core_claim, "attention computes similarity scores and normalizes them")
         self.assertEqual(existing.summary, "merged summary")
-        self.assertEqual(existing.payload["slots"]["equation"], "softmax(QK^T / sqrt(d))")
-        self.assertNotIn("evidence", existing.payload)
+        self.assertEqual(existing.slots["equation"], "softmax(QK^T / sqrt(d))")
 
     def test_reuse_keeps_existing_unit_unchanged(self):
         note = StructuredNote.model_validate(
@@ -464,7 +454,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
             topic_key="attention-reuse",
             summary="reuse summary",
             content="# Attention-reuse",
-            structured_data={},
+            dedupe_hints={},
             paper_id="paper-1",
             session_id=1,
             folder_id=None,
@@ -478,12 +468,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
             core_claim="stable claim",
             summary="stable summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={
-                "related_terms": ["self-attention"],
-                "slots": {"scope": "token"},
-                "source_paper_ids": ["paper-1"],
-            },
+            related_terms=["weights", "self-attention"],
+            slots={"scope": "token"},
         )
         self.db.add_all([persisted_note, existing])
         self.db.flush()
@@ -529,9 +515,8 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.assertEqual(existing.core_claim, "stable claim")
         self.assertEqual(existing.summary, "stable summary")
         self.assertEqual(existing.aliases, ["注意力机制"])
-        self.assertEqual(existing.semantic_fingerprint, ["weights"])
-        self.assertEqual(existing.payload["slots"], {"scope": "token"})
-        self.assertNotIn("evidence", existing.payload)
+        self.assertEqual(existing.related_terms, ["weights", "self-attention"])
+        self.assertEqual(existing.slots, {"scope": "token"})
 
 
 if __name__ == "__main__":

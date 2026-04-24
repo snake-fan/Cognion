@@ -31,7 +31,7 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
             topic_key="attention-note",
             summary="summary",
             content="# Attention Note",
-            structured_data={},
+            dedupe_hints={},
             paper_id="paper-1",
             session_id=1,
             folder_id=None,
@@ -45,8 +45,8 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
             core_claim="focus",
             summary="attention summary",
             aliases=["注意力机制"],
-            semantic_fingerprint=["weights"],
-            payload={},
+            related_terms=["weights"],
+            slots={},
         )
         unit_b = KnowledgeUnit(
             paper_id="paper-1",
@@ -56,8 +56,8 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
             core_claim="attend to sequence",
             summary="self-attention summary",
             aliases=[],
-            semantic_fingerprint=["sequence"],
-            payload={},
+            related_terms=["sequence"],
+            slots={},
         )
         self.db.add_all([paper, chat_session, note, unit_a, unit_b])
         self.db.flush()

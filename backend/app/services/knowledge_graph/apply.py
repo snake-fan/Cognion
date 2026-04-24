@@ -26,7 +26,8 @@ from .common import (
     _merge_unique_strings,
     _normalize_key,
     _normalize_text,
-    _sanitize_knowledge_unit_payload,
+    _sanitize_related_terms,
+    _sanitize_slots,
 )
 from .store import _create_new_knowledge_unit, _ensure_note_link, _upsert_graph_edge
 
@@ -45,7 +46,7 @@ def _get_note_by_ref(note_refs: dict[str, Note], note_id: str) -> Note | None:
     return note_refs.get(note_id)
 
 
-def _knowledge_unit_from_patch_payload(note: Note, payload: dict[str, object]) -> dict[str, object]:
+def _knowledge_unit_from_patch_payload(payload: dict[str, object]) -> dict[str, object]:
     unit_type = _clean_text(payload.get("type")) or "concept"
     canonical_name = _clean_text(payload.get("canonical_name"))
     description = _clean_text(payload.get("description"))
@@ -56,14 +57,13 @@ def _knowledge_unit_from_patch_payload(note: Note, payload: dict[str, object]) -
         "unit_type": unit_type,
         "term": canonical_name,
         "core_claim": description,
-        "related_terms": _merge_unique_strings(aliases, keywords),
+        "aliases": aliases,
+        "related_terms": keywords,
         "slots": slots,
-        "source_paper_ids": [note.paper_id] if note.paper_id else [],
     }
 
 
 def _serialize_existing_knowledge_unit_for_merge(existing: KnowledgeUnit) -> dict[str, object]:
-    payload = existing.payload if isinstance(existing.payload, dict) else {}
     return {
         "unit_type": existing.unit_type,
         "term": existing.term,
@@ -71,27 +71,24 @@ def _serialize_existing_knowledge_unit_for_merge(existing: KnowledgeUnit) -> dic
         "core_claim": existing.core_claim,
         "summary": existing.summary,
         "aliases": existing.aliases if isinstance(existing.aliases, list) else [],
-        "semantic_fingerprint": existing.semantic_fingerprint if isinstance(existing.semantic_fingerprint, list) else [],
-        "related_terms": payload.get("related_terms") if isinstance(payload.get("related_terms"), list) else [],
-        "slots": payload.get("slots") if isinstance(payload.get("slots"), dict) else {},
-        "source_paper_ids": payload.get("source_paper_ids") if isinstance(payload.get("source_paper_ids"), list) else [],
+        "related_terms": existing.related_terms if isinstance(existing.related_terms, list) else [],
+        "slots": existing.slots if isinstance(existing.slots, dict) else {},
     }
 
 
 def _sanitize_llm_merged_unit(
     *,
     existing: KnowledgeUnit,
-    note: Note,
     note_payload: dict[str, object],
     merged_unit: dict[str, object],
 ) -> dict[str, object]:
     knowledge_unit = note_payload.get("knowledge_unit") if isinstance(note_payload.get("knowledge_unit"), dict) else {}
     dedupe_hints = note_payload.get("dedupe_hints") if isinstance(note_payload.get("dedupe_hints"), dict) else {}
-    existing_payload = existing.payload if isinstance(existing.payload, dict) else {}
 
     incoming_term = _clean_text(knowledge_unit.get("term"))
     incoming_core_claim = _clean_text(knowledge_unit.get("core_claim"))
     incoming_summary = _clean_text(note_payload.get("summary"))
+    incoming_aliases = knowledge_unit.get("aliases") if isinstance(knowledge_unit.get("aliases"), list) else []
     incoming_related_terms = (
         knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else []
     )
@@ -105,36 +102,25 @@ def _sanitize_llm_merged_unit(
         existing.aliases if isinstance(existing.aliases, list) else [],
         merged_unit.get("aliases") if isinstance(merged_unit.get("aliases"), list) else [],
         dedupe_hints.get("aliases") if isinstance(dedupe_hints.get("aliases"), list) else [],
+        incoming_aliases,
         [incoming_term] if incoming_term and _normalize_text(incoming_term) != _normalize_text(term) else [],
         limit=32,
     )
-    semantic_fingerprint = _merge_unique_strings(
-        existing.semantic_fingerprint if isinstance(existing.semantic_fingerprint, list) else [],
-        merged_unit.get("semantic_fingerprint") if isinstance(merged_unit.get("semantic_fingerprint"), list) else [],
+    related_terms = _sanitize_related_terms(
+        existing.related_terms if isinstance(existing.related_terms, list) else [],
+        merged_unit.get("related_terms") if isinstance(merged_unit.get("related_terms"), list) else [],
         dedupe_hints.get("semantic_fingerprint")
         if isinstance(dedupe_hints.get("semantic_fingerprint"), list)
         else [],
-        [note_payload.get("topic_key"), incoming_term],
-        limit=24,
-    )
-    related_terms = _merge_unique_strings(
-        existing_payload.get("related_terms") if isinstance(existing_payload.get("related_terms"), list) else [],
-        merged_unit.get("related_terms") if isinstance(merged_unit.get("related_terms"), list) else [],
         incoming_related_terms,
         limit=32,
     )
-    slots = dict(existing_payload.get("slots")) if isinstance(existing_payload.get("slots"), dict) else {}
+    slots = dict(existing.slots) if isinstance(existing.slots, dict) else {}
     llm_slots = merged_unit.get("slots") if isinstance(merged_unit.get("slots"), dict) else {}
     for key, value in {**incoming_slots, **llm_slots}.items():
         if value in (None, "", [], {}):
             continue
         slots[_clean_text(key)] = value
-    source_paper_ids = _merge_unique_strings(
-        existing_payload.get("source_paper_ids") if isinstance(existing_payload.get("source_paper_ids"), list) else [],
-        merged_unit.get("source_paper_ids") if isinstance(merged_unit.get("source_paper_ids"), list) else [],
-        [note.paper_id] if note.paper_id else [],
-        limit=32,
-    )
     core_claim = _clean_text(merged_unit.get("core_claim")) or _merge_distinct_texts(existing.core_claim, incoming_core_claim)
     summary = _clean_text(merged_unit.get("summary")) or _merge_distinct_texts(existing.summary, incoming_summary)
 
@@ -145,20 +131,14 @@ def _sanitize_llm_merged_unit(
         "core_claim": core_claim,
         "summary": summary,
         "aliases": aliases,
-        "semantic_fingerprint": semantic_fingerprint,
-        "payload": {
-            **existing_payload,
-            "related_terms": related_terms,
-            "slots": slots,
-            "source_paper_ids": source_paper_ids,
-        },
+        "related_terms": related_terms,
+        "slots": _sanitize_slots(slots),
     }
 
 
 def _merge_existing_knowledge_unit_with_llm(
     *,
     existing: KnowledgeUnit,
-    note: Note,
     note_payload: dict[str, object],
 ) -> dict[str, object] | None:
     knowledge_unit = note_payload.get("knowledge_unit") if isinstance(note_payload.get("knowledge_unit"), dict) else {}
@@ -172,19 +152,18 @@ def _merge_existing_knowledge_unit_with_llm(
         "summary": _clean_text(note_payload.get("summary")),
         "aliases": _merge_unique_strings(
             dedupe_hints.get("aliases") if isinstance(dedupe_hints.get("aliases"), list) else [],
+            knowledge_unit.get("aliases") if isinstance(knowledge_unit.get("aliases"), list) else [],
             [knowledge_unit.get("term")],
             limit=32,
         ),
-        "semantic_fingerprint": _merge_unique_strings(
+        "related_terms": _sanitize_related_terms(
             dedupe_hints.get("semantic_fingerprint")
             if isinstance(dedupe_hints.get("semantic_fingerprint"), list)
             else [],
-            [note_payload.get("topic_key"), knowledge_unit.get("term")],
-            limit=24,
+            knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
+            limit=32,
         ),
-        "related_terms": knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
-        "slots": knowledge_unit.get("slots") if isinstance(knowledge_unit.get("slots"), dict) else {},
-        "source_paper_ids": [note.paper_id] if note.paper_id else [],
+        "slots": _sanitize_slots(knowledge_unit.get("slots")),
     }
 
     prompt_payload = {
@@ -194,7 +173,7 @@ def _merge_existing_knowledge_unit_with_llm(
             "Do not invent facts not supported by either input.",
             "Prefer one clean merged core_claim and one clean merged summary instead of concatenating both verbatim.",
             "Keep the canonical identity stable unless the incoming term is clearly a better canonical label.",
-            "Aliases, semantic_fingerprint, related_terms, source_paper_ids should be deduplicated lists.",
+            "Aliases and related_terms should be deduplicated lists.",
             "slots should be a merged object; keep useful old keys and add useful new keys.",
         ],
         "existing_unit": existing_unit,
@@ -232,7 +211,6 @@ def _merge_existing_knowledge_unit_with_llm(
         return None
     return _sanitize_llm_merged_unit(
         existing=existing,
-        note=note,
         note_payload=note_payload,
         merged_unit=merged_unit,
     )
@@ -240,7 +218,6 @@ def _merge_existing_knowledge_unit_with_llm(
 
 def _merge_into_existing_knowledge_unit_fallback(
     existing: KnowledgeUnit,
-    note: Note,
     note_payload: dict[str, object],
 ) -> None:
     knowledge_unit = note_payload.get("knowledge_unit") if isinstance(note_payload.get("knowledge_unit"), dict) else {}
@@ -251,16 +228,16 @@ def _merge_into_existing_knowledge_unit_fallback(
     incoming_summary = _clean_text(note_payload.get("summary"))
     incoming_aliases = _merge_unique_strings(
         dedupe_hints.get("aliases") if isinstance(dedupe_hints.get("aliases"), list) else [],
-        knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
+        knowledge_unit.get("aliases") if isinstance(knowledge_unit.get("aliases"), list) else [],
         [incoming_term] if incoming_term and _normalize_text(incoming_term) != _normalize_text(existing.term) else [],
         limit=32,
     )
-    incoming_fingerprint = _merge_unique_strings(
+    incoming_related_terms = _sanitize_related_terms(
         dedupe_hints.get("semantic_fingerprint")
         if isinstance(dedupe_hints.get("semantic_fingerprint"), list)
         else [],
-        [note_payload.get("topic_key"), incoming_term],
-        limit=24,
+        knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
+        limit=32,
     )
 
     existing.unit_type = existing.unit_type or (_clean_text(knowledge_unit.get("unit_type")) or "concept")
@@ -269,51 +246,27 @@ def _merge_into_existing_knowledge_unit_fallback(
     existing.summary = _merge_distinct_texts(existing.summary, incoming_summary)
     existing.canonical_key = existing.canonical_key or _normalize_key(note_payload.get("topic_key") or incoming_term)
     existing.aliases = _merge_unique_strings(existing.aliases if isinstance(existing.aliases, list) else [], incoming_aliases, limit=32)
-    existing.semantic_fingerprint = _merge_unique_strings(
-        existing.semantic_fingerprint if isinstance(existing.semantic_fingerprint, list) else [],
-        incoming_fingerprint,
-        limit=24,
-    )
-
-    next_payload = dict(existing.payload) if isinstance(existing.payload, dict) else {}
-    incoming_related_terms = (
-        knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else []
-    )
-    merged_related_terms = _merge_unique_strings(
-        next_payload.get("related_terms") if isinstance(next_payload.get("related_terms"), list) else [],
+    existing.related_terms = _sanitize_related_terms(
+        existing.related_terms if isinstance(existing.related_terms, list) else [],
         incoming_related_terms,
         limit=32,
     )
-    if merged_related_terms:
-        next_payload["related_terms"] = merged_related_terms
-
-    merged_slots = dict(next_payload.get("slots")) if isinstance(next_payload.get("slots"), dict) else {}
+    merged_slots = dict(existing.slots) if isinstance(existing.slots, dict) else {}
     incoming_slots = knowledge_unit.get("slots") if isinstance(knowledge_unit.get("slots"), dict) else {}
     for key, value in incoming_slots.items():
         if value in (None, "", [], {}):
             continue
         merged_slots[key] = value
-    if merged_slots:
-        next_payload["slots"] = merged_slots
-
-    source_paper_ids = _merge_unique_strings(
-        next_payload.get("source_paper_ids") if isinstance(next_payload.get("source_paper_ids"), list) else [],
-        [note.paper_id] if note.paper_id else [],
-        limit=32,
-    )
-    if source_paper_ids:
-        next_payload["source_paper_ids"] = source_paper_ids
-    existing.payload = _sanitize_knowledge_unit_payload(next_payload)
+    existing.slots = _sanitize_slots(merged_slots)
 
 
 def _merge_into_existing_knowledge_unit(
     existing: KnowledgeUnit,
-    note: Note,
     note_payload: dict[str, object],
 ) -> None:
-    merged = _merge_existing_knowledge_unit_with_llm(existing=existing, note=note, note_payload=note_payload)
+    merged = _merge_existing_knowledge_unit_with_llm(existing=existing, note_payload=note_payload)
     if merged is None:
-        _merge_into_existing_knowledge_unit_fallback(existing, note, note_payload)
+        _merge_into_existing_knowledge_unit_fallback(existing, note_payload)
         return
 
     existing.unit_type = _clean_text(merged.get("unit_type")) or existing.unit_type
@@ -322,15 +275,15 @@ def _merge_into_existing_knowledge_unit(
     existing.summary = _clean_text(merged.get("summary")) or existing.summary
     existing.canonical_key = _clean_text(merged.get("canonical_key")) or existing.canonical_key
     existing.aliases = merged.get("aliases") if isinstance(merged.get("aliases"), list) else existing.aliases
-    existing.semantic_fingerprint = (
-        merged.get("semantic_fingerprint")
-        if isinstance(merged.get("semantic_fingerprint"), list)
-        else existing.semantic_fingerprint
+    existing.related_terms = (
+        merged.get("related_terms")
+        if isinstance(merged.get("related_terms"), list)
+        else existing.related_terms
     )
-    existing.payload = (
-        _sanitize_knowledge_unit_payload(merged.get("payload"))
-        if isinstance(merged.get("payload"), dict)
-        else existing.payload
+    existing.slots = (
+        _sanitize_slots(merged.get("slots"))
+        if isinstance(merged.get("slots"), dict)
+        else existing.slots
     )
 
 
@@ -345,7 +298,7 @@ def _create_or_update_knowledge_unit_from_patch(
         "topic_key": note.topic_key,
         "title": note.title,
         "summary": note.summary,
-        "knowledge_unit": _knowledge_unit_from_patch_payload(note, payload),
+        "knowledge_unit": _knowledge_unit_from_patch_payload(payload),
         "dedupe_hints": {
             "aliases": payload.get("aliases") if isinstance(payload.get("aliases"), list) else [],
             "semantic_fingerprint": payload.get("keywords") if isinstance(payload.get("keywords"), list) else [],
@@ -365,7 +318,7 @@ def _create_or_update_knowledge_unit_from_patch(
 
     _ensure_note_link(db, existing.id, note.id)
     if op.action == CanonicalizationAction.MERGE:
-        _merge_into_existing_knowledge_unit(existing, note, note_payload)
+        _merge_into_existing_knowledge_unit(existing, note_payload)
     db.flush()
     return existing
 

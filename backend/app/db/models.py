@@ -89,10 +89,15 @@ class Note(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     cognitive_state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     follow_up_questions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    structured_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    dedupe_hints: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
     session_id: Mapped[int | None] = mapped_column(
         ForeignKey("chat_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -115,8 +120,8 @@ class KnowledgeUnit(Base):
     core_claim: Mapped[str] = mapped_column(Text, nullable=False, default="")
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     aliases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    semantic_fingerprint: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    related_terms: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    slots: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow

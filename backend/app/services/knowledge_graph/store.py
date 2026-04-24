@@ -8,7 +8,8 @@ from .common import (
     _clean_text,
     _merge_unique_strings,
     _normalize_key,
-    _sanitize_knowledge_unit_payload,
+    _sanitize_related_terms,
+    _sanitize_slots,
 )
 
 
@@ -46,12 +47,13 @@ def _create_new_knowledge_unit(db: Session, note: Note, note_payload: dict[str, 
     dedupe_hints = note_payload.get("dedupe_hints") if isinstance(note_payload.get("dedupe_hints"), dict) else {}
     aliases = _merge_unique_strings(
         dedupe_hints.get("aliases") if isinstance(dedupe_hints.get("aliases"), list) else [],
-        knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
+        knowledge_unit.get("aliases") if isinstance(knowledge_unit.get("aliases"), list) else [],
     )
-    semantic_fingerprint = _merge_unique_strings(
+    related_terms = _sanitize_related_terms(
         dedupe_hints.get("semantic_fingerprint")
         if isinstance(dedupe_hints.get("semantic_fingerprint"), list)
         else [],
+        knowledge_unit.get("related_terms") if isinstance(knowledge_unit.get("related_terms"), list) else [],
         [note_payload.get("topic_key"), term],
         limit=12,
     )
@@ -64,11 +66,8 @@ def _create_new_knowledge_unit(db: Session, note: Note, note_payload: dict[str, 
         core_claim=_clean_text(knowledge_unit.get("core_claim")),
         summary=_clean_text(note_payload.get("summary")),
         aliases=aliases,
-        semantic_fingerprint=semantic_fingerprint,
-        payload=_sanitize_knowledge_unit_payload(
-            knowledge_unit,
-            source_paper_ids=[note.paper_id] if note.paper_id else [],
-        ),
+        related_terms=related_terms,
+        slots=_sanitize_slots(knowledge_unit.get("slots")),
     )
     db.add(created)
     db.flush()
@@ -99,10 +98,7 @@ def _upsert_graph_edge(
             from_unit_id=from_unit_id,
             relation=relation,
             to_unit_id=to_unit_id,
-            payload={
-                **(payload or {}),
-                "source_paper_ids": [paper_id] if paper_id else [],
-            },
+            payload={key: value for key, value in (payload or {}).items() if value not in (None, "", [], {})},
         )
         db.add(edge)
         db.flush()
@@ -111,12 +107,5 @@ def _upsert_graph_edge(
     if payload:
         next_payload = dict(edge.payload) if isinstance(edge.payload, dict) else {}
         next_payload.update({key: value for key, value in payload.items() if value not in (None, "", [], {})})
-        source_paper_ids = _merge_unique_strings(
-            next_payload.get("source_paper_ids") if isinstance(next_payload.get("source_paper_ids"), list) else [],
-            [paper_id] if paper_id else [],
-            limit=32,
-        )
-        if source_paper_ids:
-            next_payload["source_paper_ids"] = source_paper_ids
         edge.payload = next_payload
     return edge
