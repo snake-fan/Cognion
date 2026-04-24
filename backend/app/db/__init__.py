@@ -12,7 +12,6 @@ from .models import (
     NoteUnitCandidate,
     NoteFolder,
     Paper,
-    PaperPlacement,
     UnitCanonicalizationDecision,
     UnitRelationDecision,
 )
@@ -26,7 +25,6 @@ __all__ = [
     "init_database",
     "Paper",
     "Folder",
-    "PaperPlacement",
     "AgentRun",
     "ChatMessage",
     "ChatSession",

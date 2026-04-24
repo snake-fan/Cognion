@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..db import ChatMessage, ChatSession, Folder, Paper, PaperPlacement, get_db
+from ..db import ChatMessage, ChatSession, Folder, Paper, get_db
 from ..services import extract_paper_metadata, move_pdf_file_to_segments, persist_uploaded_pdf
 from .common import (
     build_folder_tree,
@@ -52,6 +52,7 @@ async def upload_paper(
         summary=metadata["summary"],
         original_filename=filename,
         file_path=file_path,
+        folder_id=folder_id,
     )
 
     db.add(paper)
@@ -59,10 +60,6 @@ async def upload_paper(
     db.refresh(paper)
 
     ensure_default_session(db, paper.id)
-
-    placement = PaperPlacement(paper_id=paper.id, folder_id=folder_id)
-    db.add(placement)
-    db.commit()
 
     return {"paper": paper_to_dict(paper)}
 
@@ -73,13 +70,13 @@ def list_papers(
     include_all: bool = False,
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict[str, str | int]]]:
-    query = db.query(Paper).join(PaperPlacement, PaperPlacement.paper_id == Paper.id, isouter=True)
+    query = db.query(Paper)
     if include_all:
         pass
     elif folder_id is None:
-        query = query.filter(PaperPlacement.folder_id.is_(None))
+        query = query.filter(Paper.folder_id.is_(None))
     else:
-        query = query.filter(PaperPlacement.folder_id == folder_id)
+        query = query.filter(Paper.folder_id == folder_id)
 
     papers = query.order_by(Paper.updated_at.desc()).all()
     return {"papers": [paper_to_dict(paper) for paper in papers]}
@@ -113,12 +110,7 @@ def get_paper_file(paper_id: str, db: Session = Depends(get_db)) -> FileResponse
 @router.get("/folders/tree")
 def list_folder_tree(db: Session = Depends(get_db)) -> dict[str, list[dict[str, object]]]:
     folders = db.query(Folder).order_by(Folder.name.asc()).all()
-    occupied_rows = (
-        db.query(PaperPlacement.folder_id)
-        .filter(PaperPlacement.folder_id.isnot(None))
-        .distinct()
-        .all()
-    )
+    occupied_rows = db.query(Paper.folder_id).filter(Paper.folder_id.isnot(None)).distinct().all()
     folder_ids_with_papers = {folder_id for (folder_id,) in occupied_rows if folder_id is not None}
     return {"folders": build_folder_tree(folders, folder_ids_with_papers)}
 
@@ -209,13 +201,7 @@ def move_paper(
         if not target_folder:
             raise HTTPException(status_code=404, detail="Target folder not found")
 
-    placement = db.query(PaperPlacement).filter(PaperPlacement.paper_id == paper_id).first()
-    if not placement:
-        placement = PaperPlacement(paper_id=paper_id, folder_id=target_folder_id)
-        db.add(placement)
-    else:
-        placement.folder_id = target_folder_id
-
+    paper.folder_id = target_folder_id
     paper.file_path = move_pdf_file_to_segments(paper.file_path, folder_segments(db, target_folder_id))
     paper.updated_at = datetime.utcnow()
     db.commit()
@@ -234,7 +220,6 @@ def delete_paper(paper_id: str, db: Session = Depends(get_db)) -> dict[str, int]
         target_path.unlink(missing_ok=True)
 
     db.query(ChatMessage).filter(ChatMessage.paper_id == paper_id).delete(synchronize_session=False)
-    db.query(PaperPlacement).filter(PaperPlacement.paper_id == paper_id).delete(synchronize_session=False)
     db.query(Paper).filter(Paper.id == paper_id).delete(synchronize_session=False)
     db.commit()
 
@@ -250,8 +235,10 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, in
     all_folders = db.query(Folder).all()
     delete_folder_ids = collect_descendant_folder_ids(folder_id, all_folders)
 
-    placements = db.query(PaperPlacement).filter(PaperPlacement.folder_id.in_(delete_folder_ids)).all()
-    delete_paper_ids = [placement.paper_id for placement in placements]
+    delete_paper_ids = [
+        paper_id
+        for (paper_id,) in db.query(Paper.id).filter(Paper.folder_id.in_(delete_folder_ids)).all()
+    ]
 
     if delete_paper_ids:
         papers = db.query(Paper).filter(Paper.id.in_(delete_paper_ids)).all()
@@ -261,7 +248,6 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, in
                 target_path.unlink(missing_ok=True)
 
         db.query(ChatMessage).filter(ChatMessage.paper_id.in_(delete_paper_ids)).delete(synchronize_session=False)
-        db.query(PaperPlacement).filter(PaperPlacement.paper_id.in_(delete_paper_ids)).delete(synchronize_session=False)
         db.query(Paper).filter(Paper.id.in_(delete_paper_ids)).delete(synchronize_session=False)
 
     db.query(Folder).filter(Folder.id.in_(delete_folder_ids)).delete(synchronize_session=False)
