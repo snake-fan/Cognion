@@ -96,11 +96,6 @@ class Note(Base):
         nullable=True,
         index=True,
     )
-    agent_run_id: Mapped[int | None] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("note_folders.id", ondelete="SET NULL"), nullable=True)
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -147,7 +142,7 @@ class KnowledgeGraphEdge(Base):
         nullable=False,
         index=True,
     )
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -167,85 +162,4 @@ class KnowledgeUnitNoteLink(Base):
         index=True,
     )
     note_id: Mapped[int] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class AgentRun(Base):
-    __tablename__ = "agent_runs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, default="")
-    pipeline_name: Mapped[str] = mapped_column(String(128), nullable=False, default="session_notes_pipeline")
-    paper_id: Mapped[str | None] = mapped_column(ForeignKey("papers.id", ondelete="SET NULL"), nullable=True, index=True)
-    session_id: Mapped[int | None] = mapped_column(
-        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-
-class NoteUnitCandidate(Base):
-    __tablename__ = "note_unit_candidates"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
-    unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    candidate_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class UnitCanonicalizationDecision(Base):
-    __tablename__ = "unit_canonicalization_decisions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
-    source_unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    action: Mapped[str] = mapped_column(String(32), nullable=False, default="create_new")
-    target_unit_id: Mapped[int | None] = mapped_column(
-        ForeignKey("knowledge_units.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    target_canonical_key: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class UnitRelationDecision(Base):
-    __tablename__ = "unit_relation_decisions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
-    from_unit_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    relation_type: Mapped[str] = mapped_column(String(64), nullable=False, default="related_to")
-    to_unit_ref: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class GraphUpdateLog(Base):
-    __tablename__ = "graph_update_logs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False, index=True)
-    note_ref: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
-    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"), nullable=True, index=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="applied")
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

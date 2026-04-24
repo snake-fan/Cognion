@@ -6,7 +6,7 @@ from .config import (
     MINERU_ENABLED,
 )
 from ..agents.llm import answer_with_context, answer_with_context_stream, extract_paper_metadata, generate_notes_from_session
-from .knowledge_graph import apply_graph_patch, persist_pipeline_audit_records
+from .knowledge_graph import apply_graph_patch
 from .mineru import call_mineru_api_with_pdf_url, upload_pdf_to_aliyun_oss
 from .note_storage import (
     move_note_file_to_segments,
@@ -23,7 +23,6 @@ __all__ = [
     "MINERU_API_URL",
     "MINERU_ENABLED",
     "apply_graph_patch",
-    "persist_pipeline_audit_records",
     "answer_with_context",
     "answer_with_context_stream",
     "extract_paper_metadata",

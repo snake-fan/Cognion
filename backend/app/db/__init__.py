@@ -1,19 +1,14 @@
 from .startup import init_database
 from .models import (
-    AgentRun,
     ChatMessage,
     ChatSession,
     Folder,
-    GraphUpdateLog,
     KnowledgeGraphEdge,
     KnowledgeUnit,
     KnowledgeUnitNoteLink,
     Note,
-    NoteUnitCandidate,
     NoteFolder,
     Paper,
-    UnitCanonicalizationDecision,
-    UnitRelationDecision,
 )
 from .session import Base, SessionLocal, engine, get_db
 
@@ -25,15 +20,10 @@ __all__ = [
     "init_database",
     "Paper",
     "Folder",
-    "AgentRun",
     "ChatMessage",
     "ChatSession",
     "NoteFolder",
     "Note",
-    "NoteUnitCandidate",
-    "UnitCanonicalizationDecision",
-    "UnitRelationDecision",
-    "GraphUpdateLog",
     "KnowledgeUnit",
     "KnowledgeGraphEdge",
     "KnowledgeUnitNoteLink",

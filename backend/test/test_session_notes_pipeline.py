@@ -201,7 +201,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.db.add(persisted_note)
         self.db.flush()
 
-        patch, provenance = build_graph_patch(
+        patch = build_graph_patch(
             notes=[note],
             note_units={
                 "temp_001": [
@@ -237,15 +237,13 @@ class SessionNotesPipelineTests(unittest.TestCase):
                 ]
             },
         )
-        self.assertTrue(provenance)
-        results = apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_001": persisted_note})
-        self.assertEqual(len(results), 1)
-        self.assertTrue(results[0]["knowledge_unit_ids"])
-        self.assertNotIn("node_ids", results[0])
+        apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_001": persisted_note})
         self.assertEqual(self.db.query(KnowledgeUnitNoteLink).count(), 1)
+        created_unit = self.db.query(KnowledgeUnit).one()
         edge = self.db.query(KnowledgeGraphEdge).one()
-        self.assertEqual(edge.from_unit_id, results[0]["knowledge_unit_ids"][0])
-        self.assertEqual(edge.to_unit_id, results[0]["knowledge_unit_ids"][0])
+        self.assertEqual(edge.from_unit_id, created_unit.id)
+        self.assertEqual(edge.to_unit_id, created_unit.id)
+        self.assertEqual(edge.confidence, 0.4)
 
     @patch("backend.app.services.knowledge_graph.apply._merge_existing_knowledge_unit_with_llm", return_value=None)
     def test_merge_updates_existing_unit_with_new_information(self, _mock_merge):
@@ -291,7 +289,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.db.add_all([persisted_note, existing])
         self.db.flush()
 
-        patch, _ = build_graph_patch(
+        patch = build_graph_patch(
             notes=[note],
             note_units={
                 "temp_002": [
@@ -322,12 +320,9 @@ class SessionNotesPipelineTests(unittest.TestCase):
             relation_decisions={},
         )
 
-        results = apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_002": persisted_note})
+        apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_002": persisted_note})
         self.db.refresh(existing)
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["knowledge_unit_ids"], [existing.id])
-        self.assertNotIn("node_ids", results[0])
         self.assertEqual(self.db.query(KnowledgeUnit).count(), 1)
         self.assertIn("old focus", existing.core_claim)
         self.assertIn("new computation", existing.core_claim)
@@ -392,7 +387,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.db.add_all([persisted_note, existing])
         self.db.flush()
 
-        patch_payload, _ = build_graph_patch(
+        patch_payload = build_graph_patch(
             notes=[note],
             note_units={
                 "temp_004": [
@@ -474,7 +469,7 @@ class SessionNotesPipelineTests(unittest.TestCase):
         self.db.add_all([persisted_note, existing])
         self.db.flush()
 
-        patch, _ = build_graph_patch(
+        patch = build_graph_patch(
             notes=[note],
             note_units={
                 "temp_003": [
@@ -505,12 +500,9 @@ class SessionNotesPipelineTests(unittest.TestCase):
             relation_decisions={},
         )
 
-        results = apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_003": persisted_note})
+        apply_graph_patch(self.db, graph_patch=patch, notes_by_ref={"temp_003": persisted_note})
         self.db.refresh(existing)
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["knowledge_unit_ids"], [existing.id])
-        self.assertNotIn("node_ids", results[0])
         self.assertEqual(self.db.query(KnowledgeUnit).count(), 1)
         self.assertEqual(existing.core_claim, "stable claim")
         self.assertEqual(existing.summary, "stable summary")

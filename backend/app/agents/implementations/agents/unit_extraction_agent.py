@@ -41,6 +41,5 @@ class UnitExtractionAgent(BaseAgent):
         note_id = getattr(note, "note_id", "") or "note"
         units = list(parsed.data) if isinstance(parsed.data, list) else []
         state.add_note_units(note_id, units)
-        state.set_agent_output(self.name, {"note_id": note_id, "units": [unit.model_dump(mode="json") for unit in units]})
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)

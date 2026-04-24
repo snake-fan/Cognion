@@ -46,20 +46,14 @@ def _get_note_by_ref(note_refs: dict[str, Note], note_id: str) -> Note | None:
     return note_refs.get(note_id)
 
 
-def _knowledge_unit_from_patch_payload(payload: dict[str, object]) -> dict[str, object]:
-    unit_type = _clean_text(payload.get("type")) or "concept"
-    canonical_name = _clean_text(payload.get("canonical_name"))
-    description = _clean_text(payload.get("description"))
-    aliases = payload.get("aliases") if isinstance(payload.get("aliases"), list) else []
-    keywords = payload.get("keywords") if isinstance(payload.get("keywords"), list) else []
-    slots = payload.get("slots") if isinstance(payload.get("slots"), dict) else {}
+def _knowledge_unit_from_patch_op(op: GraphPatchUnitOp) -> dict[str, object]:
     return {
-        "unit_type": unit_type,
-        "term": canonical_name,
-        "core_claim": description,
-        "aliases": aliases,
-        "related_terms": keywords,
-        "slots": slots,
+        "unit_type": op.unit_type.value,
+        "term": _clean_text(op.canonical_name),
+        "core_claim": _clean_text(op.description),
+        "aliases": list(op.aliases),
+        "related_terms": list(op.keywords),
+        "slots": dict(op.slots),
     }
 
 
@@ -293,15 +287,14 @@ def _create_or_update_knowledge_unit_from_patch(
     note: Note,
     op: GraphPatchUnitOp,
 ) -> KnowledgeUnit | None:
-    payload = op.payload
     note_payload = {
         "topic_key": note.topic_key,
         "title": note.title,
         "summary": note.summary,
-        "knowledge_unit": _knowledge_unit_from_patch_payload(payload),
+        "knowledge_unit": _knowledge_unit_from_patch_op(op),
         "dedupe_hints": {
-            "aliases": payload.get("aliases") if isinstance(payload.get("aliases"), list) else [],
-            "semantic_fingerprint": payload.get("keywords") if isinstance(payload.get("keywords"), list) else [],
+            "aliases": list(op.aliases),
+            "semantic_fingerprint": list(op.keywords),
         },
     }
     if op.action == CanonicalizationAction.CREATE_NEW:
@@ -340,7 +333,7 @@ def _apply_relation_op(
         from_unit.id,
         relation_op.relation_type.value.upper(),
         to_unit.id,
-        payload={"note_id": note.id, "source": "graph_patch"},
+        confidence=relation_op.confidence,
     )
     return edge.id
 
@@ -350,11 +343,10 @@ def apply_graph_patch(
     *,
     graph_patch: GraphPatch | dict[str, object],
     notes_by_ref: dict[str, Note],
-) -> list[dict[str, object]]:
+) -> None:
     if isinstance(graph_patch, dict):
         graph_patch = GraphPatch.model_validate(graph_patch)
     resolved_units: dict[str, KnowledgeUnit] = {}
-    results_by_note: dict[str, dict[str, object]] = {}
 
     unit_ops = [
         *graph_patch.units_to_create,
@@ -370,32 +362,14 @@ def apply_graph_patch(
         if knowledge_unit is None:
             continue
         resolved_units[op.source_unit_id] = knowledge_unit
-        result = results_by_note.setdefault(
-            op.note_id,
-            {"note_ref": op.note_id, "note_id": note.id, "knowledge_unit_ids": [], "edge_ids": [], "decision_refs": []},
-        )
-        if knowledge_unit.id not in result["knowledge_unit_ids"]:
-            result["knowledge_unit_ids"].append(knowledge_unit.id)
-        result["decision_refs"].append({"source_unit_id": op.source_unit_id, "action": op.action.value})
 
     for relation_op in graph_patch.relations_to_create:
         note = _get_note_by_ref(notes_by_ref, relation_op.note_id)
         if note is None:
             continue
-        edge_id = _apply_relation_op(
+        _apply_relation_op(
             db,
             note=note,
             relation_op=relation_op,
             resolved_units=resolved_units,
         )
-        if edge_id is None:
-            continue
-        result = results_by_note.setdefault(
-            relation_op.note_id,
-            {"note_ref": relation_op.note_id, "note_id": note.id, "knowledge_unit_ids": [], "edge_ids": [], "decision_refs": []},
-        )
-        if edge_id not in result["edge_ids"]:
-            result["edge_ids"].append(edge_id)
-        result["decision_refs"].append({"relation": relation_op.relation_type.value, "from": relation_op.from_unit_ref, "to": relation_op.to_unit_ref})
-
-    return list(results_by_note.values())

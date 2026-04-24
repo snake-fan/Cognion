@@ -32,6 +32,5 @@ class RelationAgent(BaseAgent):
         note_id = getattr(note, "note_id", "") or ""
         relations = list(parsed.data) if isinstance(parsed.data, list) else []
         state.add_relation_decisions(note_id, relations)
-        state.set_agent_output(self.name, {"note_id": note_id, "relations": [relation.model_dump(mode="json") for relation in relations]})
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)

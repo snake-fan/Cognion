@@ -26,7 +26,6 @@ class QAAgent(BaseAgent):
 
     def apply_result(self, state: ConversationAgentState, parsed: ParseResult) -> None:
         answer = str(parsed.data or "")
-        state.set_agent_output(self.name, {"answer": answer, "fallback_used": parsed.fallback_used})
         state.final_result = answer
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)

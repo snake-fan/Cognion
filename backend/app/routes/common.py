@@ -170,7 +170,6 @@ def note_to_dict(note: Note) -> dict[str, object]:
         "dedupe_hints": note.dedupe_hints if isinstance(note.dedupe_hints, dict) else {},
         "paper_id": note.paper_id,
         "session_id": note.session_id,
-        "agent_run_id": note.agent_run_id,
         "folder_id": note.folder_id,
         "file_path": note.file_path,
         "created_at": note.created_at.isoformat() if isinstance(note.created_at, datetime) else "",
@@ -290,7 +289,7 @@ def knowledge_graph_edge_to_dict(edge: KnowledgeGraphEdge) -> dict[str, object]:
         "from_unit_id": edge.from_unit_id,
         "relation": edge.relation,
         "to_unit_id": edge.to_unit_id,
-        "payload": edge.payload if isinstance(edge.payload, dict) else {},
+        "confidence": float(edge.confidence or 0.0),
         "created_at": edge.created_at.isoformat() if isinstance(edge.created_at, datetime) else "",
         "updated_at": edge.updated_at.isoformat() if isinstance(edge.updated_at, datetime) else "",
     }

@@ -5,10 +5,10 @@ from uuid import uuid4
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ...state import NotesAgentState
 from ....services.knowledge_graph import (
+    build_graph_patch,
     filter_existing_knowledge_units_for_note,
 )
 from ..agents.canonicalization_agent import CanonicalizationAgent
-from ..agents.graph_update_agent import GraphUpdateAgent
 from ..agents.notes_agent import NotesAgent
 from ..agents.relation_agent import RelationAgent
 from ..agents.unit_extraction_agent import UnitExtractionAgent
@@ -22,7 +22,6 @@ class NotesOrchestrator(BaseOrchestrator):
         self.register_agent(UnitExtractionAgent(self.adapter))
         self.register_agent(CanonicalizationAgent(self.adapter))
         self.register_agent(RelationAgent(self.adapter))
-        self.register_agent(GraphUpdateAgent(self.adapter))
 
     async def generate_session_notes(
         self,
@@ -40,12 +39,7 @@ class NotesOrchestrator(BaseOrchestrator):
         if not session_messages:
             return {
                 "notes": [],
-                "note_units": {},
-                "canonicalization_decisions": {},
-                "relation_decisions": {},
                 "graph_patch": {},
-                "provenance_log": [],
-                "trace_id": trace_id or uuid4().hex,
             }
 
         state = NotesAgentState(
@@ -86,19 +80,21 @@ class NotesOrchestrator(BaseOrchestrator):
                 )
                 await self.run_steps(state, ["relation_agent"])
 
-            await self.run_steps(state, ["graph_update_agent"])
-            result = dict(state.final_result or {})
-            result["trace_id"] = state.trace_id
-            return result
+            graph_patch = build_graph_patch(
+                notes=state.notes,
+                note_units=state.note_units,
+                canonicalization_decisions=state.canonicalization_decisions,
+                relation_decisions=state.relation_decisions,
+            )
+            state.graph_patch = graph_patch
+            return {
+                "notes": [note.model_dump(mode="json") for note in state.notes],
+                "graph_patch": graph_patch.model_dump(mode="json"),
+            }
         except ModelAdapterError:
             return {
                 "notes": [],
-                "note_units": {},
-                "canonicalization_decisions": {},
-                "relation_decisions": {},
                 "graph_patch": {},
-                "provenance_log": [],
-                "trace_id": state.trace_id,
             }
 
     def _retrieve_candidates_for_note(

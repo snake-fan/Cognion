@@ -5,9 +5,8 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from .schemas import AgentExecutionLog, ModelMessage
+from .schemas import ModelMessage
 from .schemas import (
-    AgentDecisionLog,
     CanonicalDecision,
     GraphPatch,
     RelationDecision,
@@ -25,10 +24,8 @@ class BaseAgentState:
     pdf_context: str = ""
     retrieval_context: dict[str, Any] = field(default_factory=dict)
     intermediate: dict[str, Any] = field(default_factory=dict)
-    agent_outputs: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     final_result: Any = None
-    execution_logs: list[AgentExecutionLog] = field(default_factory=list)
 
     def add_error(self, agent_name: str, error: Exception | str) -> None:
         self.errors.append(
@@ -45,12 +42,6 @@ class BaseAgentState:
     def get_intermediate(self, key: str, default: Any = None) -> Any:
         return self.intermediate.get(key, default)
 
-    def set_agent_output(self, agent_name: str, value: Any) -> None:
-        self.agent_outputs[agent_name] = value
-
-    def get_agent_output(self, agent_name: str, default: Any = None) -> Any:
-        return self.agent_outputs.get(agent_name, default)
-
 
 @dataclass(slots=True)
 class ConversationAgentState(BaseAgentState):
@@ -64,7 +55,6 @@ class NotesAgentState(BaseAgentState):
     canonicalization_decisions: dict[str, list[CanonicalDecision]] = field(default_factory=dict)
     relation_decisions: dict[str, list[RelationDecision]] = field(default_factory=dict)
     graph_patch: GraphPatch = field(default_factory=GraphPatch)
-    provenance_log: list[AgentDecisionLog] = field(default_factory=list)
 
     def add_note_units(self, note_id: str, units: list[ExtractedUnit]) -> None:
         self.note_units[note_id] = units
@@ -74,9 +64,6 @@ class NotesAgentState(BaseAgentState):
 
     def add_relation_decisions(self, note_id: str, decisions: list[RelationDecision]) -> None:
         self.relation_decisions[note_id] = decisions
-
-    def add_provenance_entries(self, entries: list[AgentDecisionLog]) -> None:
-        self.provenance_log.extend(entries)
 
 
 def build_messages(system_prompt: str, user_prompt: str) -> list[ModelMessage]:

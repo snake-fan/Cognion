@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from time import perf_counter
 from typing import Any
 
 from ..model_adapter import ModelAdapterError, OpenAIModelAdapter
-from ..schemas import AgentExecutionLog, ModelCallParams, ParseResult
+from ..schemas import ModelCallParams, ParseResult
 from ..state import BaseAgentState
 
 
@@ -38,7 +37,6 @@ class BaseAgent(ABC):
         pass
 
     async def run(self, state: BaseAgentState) -> BaseAgentState:
-        started = perf_counter()
         try:
             messages = self.build_messages(state)
             result = await self.adapter.call(
@@ -53,56 +51,15 @@ class BaseAgent(ABC):
                 ),
             )
         except ModelAdapterError as exc:
-            latency_ms = int((perf_counter() - started) * 1000)
             state.add_error(self.name, exc)
-            state.execution_logs.append(
-                AgentExecutionLog(
-                    trace_id=state.trace_id,
-                    session_id=state.session_id,
-                    agent_name=self.name,
-                    step_name="run",
-                    success=False,
-                    latency_ms=latency_ms,
-                    error=str(exc),
-                )
-            )
             raise
         except Exception as exc:
-            latency_ms = int((perf_counter() - started) * 1000)
             state.add_error(self.name, exc)
-            state.execution_logs.append(
-                AgentExecutionLog(
-                    trace_id=state.trace_id,
-                    session_id=state.session_id,
-                    agent_name=self.name,
-                    step_name="run",
-                    success=False,
-                    latency_ms=latency_ms,
-                    error=str(exc),
-                )
-            )
             raise
 
         try:
             parsed = self.parse_response(result.text)
             self.apply_result(state, parsed)
-            success = parsed.ok
-            error_message = parsed.error.message if parsed.error else None
         except Exception as exc:
-            success = False
-            error_message = str(exc)
             state.add_error(self.name, exc)
-
-        latency_ms = int((perf_counter() - started) * 1000)
-        state.execution_logs.append(
-            AgentExecutionLog(
-                trace_id=state.trace_id,
-                session_id=state.session_id,
-                agent_name=self.name,
-                step_name="run",
-                success=success,
-                latency_ms=latency_ms,
-                error=error_message,
-            )
-        )
         return state

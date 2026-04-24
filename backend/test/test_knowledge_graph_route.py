@@ -68,7 +68,7 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
                 from_unit_id=unit_a.id,
                 relation="RELATED_TO",
                 to_unit_id=unit_b.id,
-                payload={"source": "test"},
+                confidence=0.82,
             )
         )
         self.db.commit()
@@ -86,6 +86,7 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
         self.assertEqual(unit_map["attention"]["note_ids"], [1])
         self.assertEqual(payload["edges"][0]["from_unit_id"], unit_map["attention"]["id"])
         self.assertEqual(payload["edges"][0]["to_unit_id"], unit_map["self-attention"]["id"])
+        self.assertEqual(payload["edges"][0]["confidence"], 0.82)
         self.assertNotIn("knowledge_units", payload)
 
 

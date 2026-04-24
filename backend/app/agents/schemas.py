@@ -81,18 +81,6 @@ class LLMInvocationLog(BaseModel):
     error: str | None = None
 
 
-class AgentExecutionLog(BaseModel):
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    trace_id: str
-    session_id: str | None = None
-    agent_name: str
-    step_name: str
-    success: bool
-    latency_ms: int
-    error: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class ParseError(BaseModel):
     code: str
     message: str
@@ -201,18 +189,17 @@ class RelationDecisionsPayload(BaseModel):
     relations: list[RelationDecision] = Field(default_factory=list)
 
 
-class GraphPatchNoteRef(BaseModel):
-    note_id: str
-    topic_key: str = ""
-
-
 class GraphPatchUnitOp(BaseModel):
     note_id: str
     source_unit_id: str
     action: CanonicalizationAction
     target_unit_id: int | None = None
-    target_canonical_key: str | None = None
-    payload: dict[str, Any] = Field(default_factory=dict)
+    unit_type: UnitType = UnitType.CONCEPT
+    canonical_name: str = ""
+    description: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    slots: dict[str, Any] = Field(default_factory=dict)
 
 
 class GraphPatchRelationOp(BaseModel):
@@ -220,26 +207,16 @@ class GraphPatchRelationOp(BaseModel):
     from_unit_ref: str
     relation_type: RelationType
     to_unit_ref: str
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentDecisionLog(BaseModel):
-    agent_name: str
-    note_id: str | None = None
-    decision_type: str
-    payload: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
 
 
 class GraphPatch(BaseModel):
-    notes_to_create: list[GraphPatchNoteRef] = Field(default_factory=list)
-    notes_to_update: list[GraphPatchNoteRef] = Field(default_factory=list)
     units_to_create: list[GraphPatchUnitOp] = Field(default_factory=list)
     units_to_update: list[GraphPatchUnitOp] = Field(default_factory=list)
     units_to_merge: list[GraphPatchUnitOp] = Field(default_factory=list)
     units_to_link: list[GraphPatchUnitOp] = Field(default_factory=list)
     relations_to_create: list[GraphPatchRelationOp] = Field(default_factory=list)
     relations_to_update: list[GraphPatchRelationOp] = Field(default_factory=list)
-    provenance_entries: list[AgentDecisionLog] = Field(default_factory=list)
 
 
 class SessionNotesPipelineResult(BaseModel):
@@ -248,4 +225,3 @@ class SessionNotesPipelineResult(BaseModel):
     canonicalization_decisions: dict[str, list[CanonicalDecision]] = Field(default_factory=dict)
     relation_decisions: dict[str, list[RelationDecision]] = Field(default_factory=dict)
     graph_patch: GraphPatch = Field(default_factory=GraphPatch)
-    provenance_log: list[AgentDecisionLog] = Field(default_factory=list)

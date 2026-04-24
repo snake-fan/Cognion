@@ -80,9 +80,10 @@ def _upsert_graph_edge(
     from_unit_id: int,
     relation: str,
     to_unit_id: int,
-    payload: dict[str, object] | None = None,
+    confidence: float | None = None,
 ) -> KnowledgeGraphEdge:
     from_unit_id, to_unit_id = _canonicalize_edge_endpoints(from_unit_id, relation, to_unit_id)
+    sanitized_confidence = max(0.0, min(1.0, float(confidence))) if confidence is not None else None
     edge = (
         db.query(KnowledgeGraphEdge)
         .filter(
@@ -98,14 +99,12 @@ def _upsert_graph_edge(
             from_unit_id=from_unit_id,
             relation=relation,
             to_unit_id=to_unit_id,
-            payload={key: value for key, value in (payload or {}).items() if value not in (None, "", [], {})},
+            confidence=sanitized_confidence or 0.0,
         )
         db.add(edge)
         db.flush()
         return edge
 
-    if payload:
-        next_payload = dict(edge.payload) if isinstance(edge.payload, dict) else {}
-        next_payload.update({key: value for key, value in payload.items() if value not in (None, "", [], {})})
-        edge.payload = next_payload
+    if sanitized_confidence is not None:
+        edge.confidence = max(float(edge.confidence or 0.0), sanitized_confidence)
     return edge

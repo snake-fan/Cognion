@@ -53,10 +53,7 @@ class NotesAgent(BaseAgent):
         return parse_structured_notes(raw_text, max_points=max_points)
 
     def apply_result(self, state: NotesAgentState, parsed: ParseResult) -> None:
-        notes = []
         if isinstance(parsed.data, list):
             state.notes = list(parsed.data)
-            notes = [note.model_dump(by_alias=True) for note in parsed.data]
-        state.set_agent_output(self.name, {"notes": notes, "fallback_used": parsed.fallback_used})
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)

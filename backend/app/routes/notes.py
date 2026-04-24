@@ -10,7 +10,6 @@ from ..services import (
     generate_notes_from_session,
     move_note_file_to_segments,
     overwrite_note_markdown,
-    persist_pipeline_audit_records,
     persist_note_markdown,
     rename_note_markdown_file,
 )
@@ -122,7 +121,6 @@ async def generate_notes_for_session(
     generated_notes = pipeline_result.get("notes") if isinstance(pipeline_result.get("notes"), list) else []
 
     created_notes: list[Note] = []
-    graph_sync_results: list[dict[str, object]] = []
     skipped_topics: list[dict[str, str]] = []
     all_topic_keys = {key for key in existing_topic_keys if key}
     notes_by_ref: dict[str, Note] = {}
@@ -190,23 +188,12 @@ async def generate_notes_for_session(
             )
 
     graph_patch = pipeline_result.get("graph_patch") if isinstance(pipeline_result.get("graph_patch"), dict) else {}
-    if notes_by_ref and graph_patch:
-        graph_sync_results = apply_graph_patch(
+    if notes_by_ref:
+        apply_graph_patch(
             db,
             graph_patch=graph_patch,
             notes_by_ref=notes_by_ref,
         )
-        pipeline_result["graph_sync_results"] = graph_sync_results
-        agent_run_id = persist_pipeline_audit_records(
-            db,
-            trace_id=str(pipeline_result.get("trace_id") or ""),
-            paper_id=paper_id,
-            session_id=session_id,
-            pipeline_payload=pipeline_result,
-            notes_by_ref=notes_by_ref,
-        )
-        for note in created_notes:
-            note.agent_run_id = agent_run_id
 
     db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
     db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
@@ -219,7 +206,6 @@ async def generate_notes_for_session(
         "paper_id": paper_id,
         "session_id": session_id,
         "created_notes": [note_to_dict(note) for note in created_notes],
-        "graph_sync_results": graph_sync_results,
         "skipped_topics": skipped_topics,
     }
 
@@ -386,7 +372,6 @@ def create_note(
         cognitive_state={},
         follow_up_questions=[],
         dedupe_hints={},
-        agent_run_id=None,
         paper_id=paper_id,
         session_id=session_id,
         folder_id=folder_id,

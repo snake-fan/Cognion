@@ -48,7 +48,6 @@ class CanonicalizationAgent(BaseAgent):
                     target_canonical_key=None,
                     confidence=0.3,
                     reason="no_decision_returned",
-                    evidence=[],
                 )
             )
         if missing_unit_ids:
@@ -57,6 +56,5 @@ class CanonicalizationAgent(BaseAgent):
                 f"canonicalization decisions missing for units {missing_unit_ids}; applied create_new fallback",
             )
         state.add_canonicalization_decisions(note_id, decisions)
-        state.set_agent_output(self.name, {"note_id": note_id, "decisions": [decision.model_dump(mode="json") for decision in decisions]})
         if not parsed.ok and parsed.error:
             state.add_error(self.name, parsed.error.message)
