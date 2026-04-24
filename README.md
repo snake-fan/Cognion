@@ -327,7 +327,7 @@ uv run python test/test_oss_mineru.py
 cd backend
 uv sync
 cp .env.example .env
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 后端地址：`http://127.0.0.1:8000`
@@ -339,8 +339,6 @@ cd frontend
 npm install
 npm run dev
 ```
-
-前端地址：`http://127.0.0.1:5173`
 
 ## 项目 TODO List
 
