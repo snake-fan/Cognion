@@ -97,6 +97,9 @@ function App() {
     setExpandedQuoteMessageIndex,
     quote,
     messageListRef,
+    showScrollToBottom,
+    onMessageListScroll,
+    scrollMessageListToBottom,
     composerRef,
     question,
     onComposerChange,
@@ -477,6 +480,9 @@ function App() {
         setExpandedQuoteMessageIndex={setExpandedQuoteMessageIndex}
         quote={quote}
         messageListRef={messageListRef}
+        showScrollToBottom={showScrollToBottom}
+        onMessageListScroll={onMessageListScroll}
+        scrollMessageListToBottom={scrollMessageListToBottom}
         composerRef={composerRef}
         question={question}
         onComposerChange={onComposerChange}

@@ -55,6 +55,9 @@ function ReaderWorkspace({
   setExpandedQuoteMessageIndex,
   quote,
   messageListRef,
+  showScrollToBottom,
+  onMessageListScroll,
+  scrollMessageListToBottom,
   composerRef,
   question,
   onComposerChange,
@@ -396,7 +399,7 @@ function ReaderWorkspace({
               </div>
             ) : (
               <div className="chat-panel">
-                <div className="chat-messages" ref={messageListRef}>
+                <div className="chat-messages" ref={messageListRef} onScroll={onMessageListScroll}>
                   {messages.length === 0 ? (
                     <div className="chat-empty">从中间 PDF 选择内容，然后在下方直接提问。</div>
                   ) : (
@@ -440,6 +443,17 @@ function ReaderWorkspace({
                   {loading ? <div className="assistant-thinking">思考中...</div> : null}
                   <div className="chat-scroll-spacer" aria-hidden="true" />
                 </div>
+                {showScrollToBottom ? (
+                  <button
+                    type="button"
+                    className="chat-scroll-bottom-button"
+                    onClick={scrollMessageListToBottom}
+                    title="回到底部"
+                    aria-label="回到底部"
+                  >
+                    ↓
+                  </button>
+                ) : null}
 
                 {quote ? <div className="quote-chip">{quote}</div> : null}
                 <div className="composer-wrap">

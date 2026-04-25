@@ -1382,6 +1382,7 @@ textarea {
 }
 
 .chat-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1664,6 +1665,34 @@ textarea {
   background: rgba(74, 74, 74, 0.9);
 }
 
+.chat-scroll-bottom-button {
+  position: absolute;
+  right: 30px;
+  bottom: 86px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  background: #2a2a2a;
+  color: #f0f0f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+.chat-scroll-bottom-button:hover {
+  border-color: #6a6a6a;
+  background: #343434;
+}
+
+.chat-scroll-bottom-button:focus-visible {
+  outline: none;
+  border-color: #8a8a8a;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
 .chat-empty {
   color: #8f8f8f;
   font-size: 13px;
@@ -1712,7 +1741,7 @@ textarea {
 }
 
 .chat-scroll-spacer {
-  height: 30%;
+  height: 7%;
   min-height: 120px;
   flex-shrink: 0;
 }

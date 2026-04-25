@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   askWithQuote,
   createPaperSession,
@@ -12,6 +12,7 @@ import {
 } from '../services/api'
 
 const PDF_PANEL_HORIZONTAL_PADDING = 28
+const CHAT_BOTTOM_THRESHOLD = 40
 
 function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -23,6 +24,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [numPages, setNumPages] = useState(0)
   const [zoom, setZoom] = useState(1)
   const [panelWidth, setPanelWidth] = useState(920)
+  const [pdfPanelElement, setPdfPanelElement] = useState(null)
   const pdfPanelRef = useRef(null)
 
   const [quote, setQuote] = useState('')
@@ -36,13 +38,41 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [noteGenLoading, setNoteGenLoading] = useState(false)
   const [sessionLoading, setSessionLoading] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const composerRef = useRef(null)
   const messageListRef = useRef(null)
+  const shouldAutoScrollRef = useRef(true)
   const resizeLockRef = useRef(false)
   const rightSidebarRef = useRef(null)
   const dragWidthRef = useRef(380)
   const resizeRafRef = useRef(null)
+
+  const updatePdfPanelRef = useCallback((element) => {
+    pdfPanelRef.current = element
+    setPdfPanelElement(element)
+    if (element) {
+      syncPanelWidth(element)
+    }
+  }, [])
+
+  function measurePanelWidth(element = pdfPanelRef.current) {
+    if (!element) {
+      return null
+    }
+
+    return Math.max(320, Math.floor(element.clientWidth - PDF_PANEL_HORIZONTAL_PADDING))
+  }
+
+  function syncPanelWidth(element = pdfPanelRef.current) {
+    const nextWidth = measurePanelWidth(element)
+    if (nextWidth === null) {
+      return null
+    }
+
+    setPanelWidth(nextWidth)
+    return nextWidth
+  }
 
   function canUseCssHighlights() {
     return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof window.Highlight !== 'undefined'
@@ -76,6 +106,8 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     setQuestion('')
     setLoading(false)
     setSessionLoading(false)
+    shouldAutoScrollRef.current = true
+    setShowScrollToBottom(false)
     clearPersistentHighlight()
 
     if (clearPdf) {
@@ -138,13 +170,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
         rightSidebarRef.current.style.width = `${committedWidth}px`
       }
 
-      if (pdfPanelRef.current) {
-        const nextWidth = Math.max(
-          320,
-          Math.floor(pdfPanelRef.current.clientWidth - PDF_PANEL_HORIZONTAL_PADDING)
-        )
-        setPanelWidth(nextWidth)
-      }
+      syncPanelWidth()
 
       resizeLockRef.current = false
       setIsResizing(false)
@@ -189,30 +215,27 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   }, [pdfUrl])
 
   useEffect(() => {
-    if (!pdfPanelRef.current) {
+    if (!pdfPanelElement) {
       return
     }
-
-    const panelElement = pdfPanelRef.current
 
     function updatePanelWidth() {
       if (resizeLockRef.current) {
         return
       }
 
-      const nextWidth = Math.max(320, Math.floor(panelElement.clientWidth - PDF_PANEL_HORIZONTAL_PADDING))
-      setPanelWidth(nextWidth)
+      syncPanelWidth(pdfPanelElement)
     }
 
     updatePanelWidth()
 
     const resizeObserver = new ResizeObserver(updatePanelWidth)
-    resizeObserver.observe(panelElement)
+    resizeObserver.observe(pdfPanelElement)
 
     return () => {
       resizeObserver.disconnect()
     }
-  }, [])
+  }, [pdfPanelElement])
 
   function loadPdfToWorkspace(nextFile) {
     if (!nextFile) {
@@ -234,6 +257,8 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
 
   async function hydrateSessionsAndMessages(paperId, preferredSessionId = null) {
     setSessionLoading(true)
+    shouldAutoScrollRef.current = true
+    setShowScrollToBottom(false)
     try {
       const nextSessions = await fetchPaperSessions(paperId)
       setSessions(nextSessions)
@@ -329,6 +354,8 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     }
 
     const attachedQuote = quote.trim()
+    shouldAutoScrollRef.current = true
+    setShowScrollToBottom(false)
     setMessages((prev) => [
       ...prev,
       {
@@ -400,12 +427,38 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     setQuestion(event.target.value)
   }
 
+  function isMessageListNearBottom(element) {
+    return element.scrollHeight - element.scrollTop - element.clientHeight <= CHAT_BOTTOM_THRESHOLD
+  }
+
+  function onMessageListScroll() {
+    if (!messageListRef.current) {
+      return
+    }
+
+    const nearBottom = isMessageListNearBottom(messageListRef.current)
+    shouldAutoScrollRef.current = nearBottom
+    setShowScrollToBottom(!nearBottom)
+  }
+
+  function scrollMessageListToBottom() {
+    if (!messageListRef.current) {
+      return
+    }
+
+    shouldAutoScrollRef.current = true
+    setShowScrollToBottom(false)
+    messageListRef.current.scrollTop = messageListRef.current.scrollHeight
+  }
+
   async function onSelectSession(sessionId) {
     if (!activeProjectId) {
       return
     }
 
     setSessionLoading(true)
+    shouldAutoScrollRef.current = true
+    setShowScrollToBottom(false)
     try {
       const [nextMessages, nextNotes] = await Promise.all([
         fetchPaperMessages(activeProjectId, sessionId),
@@ -591,6 +644,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   }
 
   function resetZoom() {
+    syncPanelWidth()
     setZoom(1)
   }
 
@@ -641,7 +695,11 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     if (!messageListRef.current) {
       return
     }
+    if (!shouldAutoScrollRef.current) {
+      return
+    }
     messageListRef.current.scrollTop = messageListRef.current.scrollHeight
+    setShowScrollToBottom(false)
   }, [messages, loading])
 
   useEffect(() => {
@@ -679,7 +737,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     setNumPages,
     pageWidth,
     onTextSelection,
-    pdfPanelRef,
+    pdfPanelRef: updatePdfPanelRef,
     sessions,
     currentSessionId,
     sessionPanelMode,
@@ -697,6 +755,9 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     setExpandedQuoteMessageIndex,
     quote,
     messageListRef,
+    showScrollToBottom,
+    onMessageListScroll,
+    scrollMessageListToBottom,
     composerRef,
     question,
     onComposerChange,
