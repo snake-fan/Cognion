@@ -1382,13 +1382,19 @@ textarea {
 }
 
 .chat-panel {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 24px;
   overflow: hidden;
   height: calc(100% - 44px);
+}
+
+.chat-messages-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 .session-list-panel {
@@ -1667,8 +1673,8 @@ textarea {
 
 .chat-scroll-bottom-button {
   position: absolute;
-  right: 30px;
-  bottom: 86px;
+  right: 16px;
+  bottom: 16px;
   width: 34px;
   height: 34px;
   border: 1px solid #4a4a4a;
@@ -1899,6 +1905,16 @@ textarea {
   border-left: 3px solid #444;
   padding: 10px;
   color: #b8b8b8;
+}
+
+.markdown-body .katex {
+  font-size: 1em;
+}
+
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
 }
 
 /* Settings Panel */

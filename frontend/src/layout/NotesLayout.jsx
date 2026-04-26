@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import rehypeHighlight from 'rehype-highlight'
-import rehypeKatex from 'rehype-katex'
-import remarkMath from 'remark-math'
 import FolderTree from '../components/FolderTree'
+import MarkdownContent from '../components/MarkdownContent'
 import { fetchPaperSessions } from '../services/api'
 
 const USER_STATE_LABELS = {
@@ -241,9 +238,7 @@ function NotesLayout({
               </div>
               <div className="notes-preview-panel markdown-body">
                 <div className="notes-pane-title">渲染预览</div>
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>
-                  {draftContent || '暂无内容'}
-                </ReactMarkdown>
+                <MarkdownContent>{draftContent || '暂无内容'}</MarkdownContent>
               </div>
             </div>
           </div>
@@ -412,9 +407,7 @@ function NotesLayout({
                   </div>
                 ) : null}
                 <div className="notes-preview-panel markdown-body notes-preview-only">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>
-                    {selectedNote.content || '暂无内容'}
-                  </ReactMarkdown>
+                  <MarkdownContent>{selectedNote.content || '暂无内容'}</MarkdownContent>
                 </div>
               </>
             )}

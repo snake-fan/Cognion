@@ -1,9 +1,6 @@
 import { Document, Page, pdfjs } from 'react-pdf'
 import { useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import rehypeHighlight from 'rehype-highlight'
+import MarkdownContent from '../components/MarkdownContent'
 import WorkspaceLayout from './WorkspaceLayout'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -399,61 +396,61 @@ function ReaderWorkspace({
               </div>
             ) : (
               <div className="chat-panel">
-                <div className="chat-messages" ref={messageListRef} onScroll={onMessageListScroll}>
-                  {messages.length === 0 ? (
-                    <div className="chat-empty">从中间 PDF 选择内容，然后在下方直接提问。</div>
-                  ) : (
-                    messages.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`chat-message ${message.role}`}>
-                        {message.role === 'user' ? (
-                          <div className="user-message-stack">
-                            {message.quote ? (
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                className={`message-quote-bubble ${expandedQuoteMessageIndex === index ? 'expanded selected' : 'collapsed'}`}
-                                onClick={() => {
-                                  if (expandedQuoteMessageIndex !== index) {
-                                    setExpandedQuoteMessageIndex(index)
-                                  }
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault()
-                                    setExpandedQuoteMessageIndex(index)
-                                  }
-                                }}
-                                title={expandedQuoteMessageIndex === index ? '点击其他区域可折叠引用' : '点击展开引用'}
-                              >
-                                {message.quote}
-                              </div>
-                            ) : null}
-                            <div className="message-bubble">{message.content}</div>
-                          </div>
-                        ) : (
-                          <div className="message-content markdown-body">
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeHighlight]}>
-                              {message.content}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                  {loading ? <div className="assistant-thinking">思考中...</div> : null}
-                  <div className="chat-scroll-spacer" aria-hidden="true" />
+                <div className="chat-messages-wrap">
+                  <div className="chat-messages" ref={messageListRef} onScroll={onMessageListScroll}>
+                    {messages.length === 0 ? (
+                      <div className="chat-empty">从中间 PDF 选择内容，然后在下方直接提问。</div>
+                    ) : (
+                      messages.map((message, index) => (
+                        <div key={`${message.role}-${index}`} className={`chat-message ${message.role}`}>
+                          {message.role === 'user' ? (
+                            <div className="user-message-stack">
+                              {message.quote ? (
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  className={`message-quote-bubble ${expandedQuoteMessageIndex === index ? 'expanded selected' : 'collapsed'}`}
+                                  onClick={() => {
+                                    if (expandedQuoteMessageIndex !== index) {
+                                      setExpandedQuoteMessageIndex(index)
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      setExpandedQuoteMessageIndex(index)
+                                    }
+                                  }}
+                                  title={expandedQuoteMessageIndex === index ? '点击其他区域可折叠引用' : '点击展开引用'}
+                                >
+                                  {message.quote}
+                                </div>
+                              ) : null}
+                              <div className="message-bubble">{message.content}</div>
+                            </div>
+                          ) : (
+                            <div className="message-content markdown-body">
+                              <MarkdownContent>{message.content}</MarkdownContent>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                    {loading ? <div className="assistant-thinking">思考中...</div> : null}
+                    <div className="chat-scroll-spacer" aria-hidden="true" />
+                  </div>
+                  {showScrollToBottom ? (
+                    <button
+                      type="button"
+                      className="chat-scroll-bottom-button"
+                      onClick={scrollMessageListToBottom}
+                      title="回到底部"
+                      aria-label="回到底部"
+                    >
+                      ↓
+                    </button>
+                  ) : null}
                 </div>
-                {showScrollToBottom ? (
-                  <button
-                    type="button"
-                    className="chat-scroll-bottom-button"
-                    onClick={scrollMessageListToBottom}
-                    title="回到底部"
-                    aria-label="回到底部"
-                  >
-                    ↓
-                  </button>
-                ) : null}
 
                 {quote ? <div className="quote-chip">{quote}</div> : null}
                 <div className="composer-wrap">
