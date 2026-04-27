@@ -1,10 +1,11 @@
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException
 from sqlalchemy.orm import Session
 
-from ..db import ChatMessage, ChatSession, KnowledgeUnit, Note, NoteFolder, Paper, get_db
+from ..db import ChatMessage, ChatSession, KnowledgeUnit, Note, NoteFolder, Paper, SessionLocal, get_db
 from ..services import (
     apply_graph_patch,
     generate_notes_from_session,
@@ -26,6 +27,167 @@ from .common import (
 )
 
 router = APIRouter()
+_NOTE_GENERATION_JOBS: set[tuple[str, int]] = set()
+
+
+async def _generate_and_persist_session_notes(
+    *,
+    paper_id: str,
+    session_id: int,
+    folder_id: int | None,
+    max_points: int | None,
+    trace_id: str,
+) -> dict[str, object]:
+    db = SessionLocal()
+    try:
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if not paper:
+            return {"created_notes": [], "skipped_topics": [{"reason": "paper_not_found"}]}
+
+        chat_session = (
+            db.query(ChatSession)
+            .filter(ChatSession.id == session_id, ChatSession.paper_id == paper_id)
+            .first()
+        )
+        if not chat_session:
+            return {"created_notes": [], "skipped_topics": [{"reason": "session_not_found"}]}
+
+        if folder_id is not None:
+            folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
+            if not folder:
+                return {"created_notes": [], "skipped_topics": [{"reason": "folder_not_found"}]}
+
+        messages = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.paper_id == paper_id, ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+            .all()
+        )
+        if not messages:
+            return {"created_notes": [], "skipped_topics": [{"reason": "empty_session"}]}
+
+        existing_session_notes = db.query(Note).filter(Note.paper_id == paper_id).all()
+        existing_topic_keys = [
+            note_topic_key(note)
+            for note in existing_session_notes
+            if note_topic_key(note)
+        ]
+        existing_knowledge_units = [
+            knowledge_unit_to_dict(unit)
+            for unit in db.query(KnowledgeUnit).order_by(KnowledgeUnit.updated_at.desc(), KnowledgeUnit.id.asc()).all()
+        ]
+
+        pipeline_result = await generate_notes_from_session(
+            paper_title=paper.title,
+            paper_authors=paper.authors,
+            paper_topic=paper.research_topic,
+            session_messages=[
+                {
+                    "role": message.role,
+                    "content": message.content,
+                    "quote": message.quote,
+                }
+                for message in messages
+            ],
+            existing_topic_keys=existing_topic_keys,
+            existing_knowledge_units=existing_knowledge_units,
+            max_points=max_points,
+            trace_id=trace_id,
+            paper_id=paper_id,
+            session_id=str(session_id),
+        )
+        generated_notes = pipeline_result.get("notes") if isinstance(pipeline_result.get("notes"), list) else []
+
+        created_notes: list[Note] = []
+        skipped_topics: list[dict[str, str]] = []
+        all_topic_keys = {key for key in existing_topic_keys if key}
+        notes_by_ref: dict[str, Note] = {}
+
+        for item in generated_notes:
+            title = str(item.get("title") or "").strip()
+            content = str(item.get("content") or "").strip()
+            note_id = str(item.get("note_id") or "").strip()
+            summary = str(item.get("summary") or "").strip()
+            candidate_topic_key = str(item.get("topic_key") or "").strip()
+            normalized_topic_key = normalize_topic_key(candidate_topic_key or title)
+            cognitive_state = item.get("cognitive_state") if isinstance(item.get("cognitive_state"), dict) else {}
+            follow_up_questions = item.get("follow_up_questions") if isinstance(item.get("follow_up_questions"), list) else []
+            dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
+
+            if not title or not content:
+                skipped_topics.append(
+                    {
+                        "title": title or "未命名知识点",
+                        "topic_key": normalized_topic_key,
+                        "reason": "empty_title_or_content",
+                    }
+                )
+                continue
+
+            if normalized_topic_key and normalized_topic_key in all_topic_keys:
+                skipped_topics.append(
+                    {
+                        "title": title,
+                        "topic_key": normalized_topic_key,
+                        "reason": "duplicate_topic",
+                    }
+                )
+                continue
+
+            try:
+                file_path = persist_note_markdown(title, content, note_folder_segments(db, folder_id))
+                note = Note(
+                    note_id=note_id or "",
+                    title=title,
+                    topic_key=normalized_topic_key,
+                    summary=summary,
+                    content=content,
+                    cognitive_state=cognitive_state,
+                    follow_up_questions=follow_up_questions,
+                    dedupe_hints=dedupe_hints,
+                    paper_id=paper_id,
+                    session_id=session_id,
+                    folder_id=folder_id,
+                    file_path=file_path,
+                )
+                db.add(note)
+                db.flush()
+                created_notes.append(note)
+                notes_by_ref[note.note_id] = note
+                if normalized_topic_key:
+                    all_topic_keys.add(normalized_topic_key)
+            except Exception:
+                skipped_topics.append(
+                    {
+                        "title": title,
+                        "topic_key": normalized_topic_key,
+                        "reason": "persist_failed",
+                    }
+                )
+
+        graph_patch = pipeline_result.get("graph_patch") if isinstance(pipeline_result.get("graph_patch"), dict) else {}
+        if notes_by_ref:
+            apply_graph_patch(
+                db,
+                graph_patch=graph_patch,
+                notes_by_ref=notes_by_ref,
+            )
+
+        db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
+        db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
+        db.commit()
+
+        return {
+            "created_notes": [note_to_dict(note) for note in created_notes],
+            "skipped_topics": skipped_topics,
+        }
+    except Exception as exc:
+        db.rollback()
+        print(f"Session note generation failed: paper_id={paper_id} session_id={session_id} trace_id={trace_id} error={exc}")
+        return {"created_notes": [], "skipped_topics": [{"reason": "generation_failed"}]}
+    finally:
+        db.close()
+        _NOTE_GENERATION_JOBS.discard((paper_id, session_id))
 
 
 @router.get("/papers/{paper_id}/sessions/{session_id}/notes")
@@ -59,6 +221,7 @@ def list_session_notes(
 async def generate_notes_for_session(
     paper_id: str,
     session_id: int,
+    background_tasks: BackgroundTasks,
     folder_id: int | None = None,
     max_points: int | None = None,
     db: Session = Depends(get_db),
@@ -75,6 +238,16 @@ async def generate_notes_for_session(
     if not chat_session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    job_key = (paper_id, session_id)
+    if job_key in _NOTE_GENERATION_JOBS:
+        return {
+            "paper_id": paper_id,
+            "session_id": session_id,
+            "status": "already_running",
+            "created_notes": [],
+            "skipped_topics": [],
+        }
+
     if folder_id is not None:
         folder = db.query(NoteFolder).filter(NoteFolder.id == folder_id).first()
         if not folder:
@@ -89,124 +262,36 @@ async def generate_notes_for_session(
     if not messages:
         raise HTTPException(status_code=400, detail="当前 Session 暂无对话，无法生成笔记")
 
-    existing_session_notes = db.query(Note).filter(Note.paper_id == paper_id).all()
-    existing_topic_keys = [
-        note_topic_key(note)
-        for note in existing_session_notes
-        if note_topic_key(note)
-    ]
-    existing_knowledge_units = [
-        knowledge_unit_to_dict(unit)
-        for unit in db.query(KnowledgeUnit).order_by(KnowledgeUnit.updated_at.desc(), KnowledgeUnit.id.asc()).all()
-    ]
-
-    pipeline_result = await generate_notes_from_session(
-        paper_title=paper.title,
-        paper_authors=paper.authors,
-        paper_topic=paper.research_topic,
-        session_messages=[
-            {
-                "role": message.role,
-                "content": message.content,
-                "quote": message.quote,
-            }
-            for message in messages
-        ],
-        # 针对当前 Paper 范围内的 topic key，包含但不限于当前 Session 相关的笔记
-        existing_topic_keys=existing_topic_keys,
-        # 针对全局 knowledge unit
-        existing_knowledge_units=existing_knowledge_units,
+    trace_id = uuid4().hex
+    _NOTE_GENERATION_JOBS.add(job_key)
+    background_tasks.add_task(
+        _generate_and_persist_session_notes,
+        paper_id=paper_id,
+        session_id=session_id,
+        folder_id=folder_id,
         max_points=max_points,
+        trace_id=trace_id,
     )
-    generated_notes = pipeline_result.get("notes") if isinstance(pipeline_result.get("notes"), list) else []
-
-    created_notes: list[Note] = []
-    skipped_topics: list[dict[str, str]] = []
-    all_topic_keys = {key for key in existing_topic_keys if key}
-    notes_by_ref: dict[str, Note] = {}
-
-    for item in generated_notes:
-        title = str(item.get("title") or "").strip()
-        content = str(item.get("content") or "").strip()
-        note_id = str(item.get("note_id") or "").strip()
-        summary = str(item.get("summary") or "").strip()
-        candidate_topic_key = str(item.get("topic_key") or "").strip()
-        normalized_topic_key = normalize_topic_key(candidate_topic_key or title)
-        cognitive_state = item.get("cognitive_state") if isinstance(item.get("cognitive_state"), dict) else {}
-        follow_up_questions = item.get("follow_up_questions") if isinstance(item.get("follow_up_questions"), list) else []
-        dedupe_hints = item.get("dedupe_hints") if isinstance(item.get("dedupe_hints"), dict) else {}
-
-        if not title or not content:
-            skipped_topics.append(
-                {
-                    "title": title or "未命名知识点",
-                    "topic_key": normalized_topic_key,
-                    "reason": "empty_title_or_content",
-                }
-            )
-            continue
-
-        if normalized_topic_key and normalized_topic_key in all_topic_keys:
-            skipped_topics.append(
-                {
-                    "title": title,
-                    "topic_key": normalized_topic_key,
-                    "reason": "duplicate_topic",
-                }
-            )
-            continue
-
-        try:
-            file_path = persist_note_markdown(title, content, note_folder_segments(db, folder_id))
-            note = Note(
-                note_id=note_id or "",
-                title=title,
-                topic_key=normalized_topic_key,
-                summary=summary,
-                content=content,
-                cognitive_state=cognitive_state,
-                follow_up_questions=follow_up_questions,
-                dedupe_hints=dedupe_hints,
-                paper_id=paper_id,
-                session_id=session_id,
-                folder_id=folder_id,
-                file_path=file_path,
-            )
-            db.add(note)
-            db.flush()
-            created_notes.append(note)
-            notes_by_ref[note.note_id] = note
-            if normalized_topic_key:
-                all_topic_keys.add(normalized_topic_key)
-        except Exception:
-            skipped_topics.append(
-                {
-                    "title": title,
-                    "topic_key": normalized_topic_key,
-                    "reason": "persist_failed",
-                }
-            )
-
-    graph_patch = pipeline_result.get("graph_patch") if isinstance(pipeline_result.get("graph_patch"), dict) else {}
-    if notes_by_ref:
-        apply_graph_patch(
-            db,
-            graph_patch=graph_patch,
-            notes_by_ref=notes_by_ref,
-        )
-
-    db.query(ChatSession).filter(ChatSession.id == session_id).update({"updated_at": datetime.utcnow()})
-    db.query(Paper).filter(Paper.id == paper_id).update({"updated_at": datetime.utcnow()})
-    db.commit()
-
-    for note in created_notes:
-        db.refresh(note)
 
     return {
         "paper_id": paper_id,
         "session_id": session_id,
-        "created_notes": [note_to_dict(note) for note in created_notes],
-        "skipped_topics": skipped_topics,
+        "trace_id": trace_id,
+        "status": "queued",
+        "created_notes": [],
+        "skipped_topics": [],
+    }
+
+
+@router.get("/papers/{paper_id}/sessions/{session_id}/notes/generate/status")
+def get_note_generation_status(
+    paper_id: str,
+    session_id: int,
+) -> dict[str, object]:
+    return {
+        "paper_id": paper_id,
+        "session_id": session_id,
+        "running": (paper_id, session_id) in _NOTE_GENERATION_JOBS,
     }
 
 

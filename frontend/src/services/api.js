@@ -279,6 +279,14 @@ export async function generateSessionNotes(paperId, sessionId, { folderId = null
   return response.json()
 }
 
+export async function fetchSessionNoteGenerationStatus(paperId, sessionId) {
+  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes/generate/status`)
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+  }
+  return response.json()
+}
+
 export async function fetchFolderTree() {
   const response = await fetch(`${API_BASE}/folders/tree`)
   if (!response.ok) {

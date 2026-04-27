@@ -71,6 +71,8 @@ class ModelInvocationResult(BaseModel):
 class LLMInvocationLog(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     trace_id: str
+    workflow: str | None = None
+    paper_id: str | None = None
     session_id: str | None = None
     agent_name: str
     messages: list[ModelMessage]

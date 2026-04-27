@@ -15,6 +15,10 @@ from ..templates.canonicalization import (
 class CanonicalizationAgent(BaseAgent):
     name = "canonicalization_agent"
 
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs.setdefault("stream_response", True)
+        super().__init__(*args, **kwargs)
+
     def build_messages(self, state: NotesAgentState):
         note = state.get_intermediate("active_note")
         note_id = getattr(note, "note_id", "") or ""

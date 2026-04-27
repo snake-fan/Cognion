@@ -24,6 +24,8 @@ class NotesAgent(BaseAgent):
     name = "note_agent"
 
     def __init__(self, *args, **kwargs) -> None:
+        kwargs.setdefault("timeout_seconds", 120.0)
+        kwargs.setdefault("stream_response", True)
         super().__init__(*args, **kwargs)
         self._active_max_points: int | None = None
 

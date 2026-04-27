@@ -6,6 +6,7 @@ import {
   fetchPaperFile,
   fetchPaperMessages,
   fetchSessionNotes,
+  fetchSessionNoteGenerationStatus,
   fetchPaperSessions,
   generateSessionNotes,
   renamePaperSession
@@ -13,6 +14,8 @@ import {
 
 const PDF_PANEL_HORIZONTAL_PADDING = 28
 const CHAT_BOTTOM_THRESHOLD = 40
+const NOTE_GENERATION_POLL_INTERVAL_MS = 3000
+const NOTE_GENERATION_MAX_POLLS = 60
 
 function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -595,13 +598,44 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
 
     setNoteGenLoading(true)
     try {
-      const result = await generateSessionNotes(activeProjectId, currentSessionId)
+      const targetPaperId = activeProjectId
+      const targetSessionId = currentSessionId
+      const initialNoteCount = sessionNotes.length
+      const result = await generateSessionNotes(targetPaperId, targetSessionId)
+      setSessionPanelMode('note')
+
+      if (result?.status === 'queued' || result?.status === 'already_running') {
+        for (let attempt = 0; attempt < NOTE_GENERATION_MAX_POLLS; attempt += 1) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, NOTE_GENERATION_POLL_INTERVAL_MS)
+          })
+
+          const [status, nextNotes] = await Promise.all([
+            fetchSessionNoteGenerationStatus(targetPaperId, targetSessionId),
+            fetchSessionNotes(targetPaperId, targetSessionId)
+          ])
+          setSessionNotes(nextNotes)
+          if (!status?.running) {
+            window.dispatchEvent(new CustomEvent('cognion:notes-updated'))
+            const createdCount = Math.max(0, nextNotes.length - initialNoteCount)
+            if (createdCount === 0) {
+              window.alert('未生成新的知识点笔记，可能已与现有笔记重复。')
+            }
+            return
+          }
+        }
+
+        await refreshSessionNotes(targetPaperId, targetSessionId)
+        window.dispatchEvent(new CustomEvent('cognion:notes-updated'))
+        window.alert('笔记仍在后台生成中，稍后切到 Note 面板即可查看。')
+        return
+      }
+
       const createdCount = Array.isArray(result?.created_notes) ? result.created_notes.length : 0
       const skippedCount = Array.isArray(result?.skipped_topics) ? result.skipped_topics.length : 0
 
-      await refreshSessionNotes(activeProjectId, currentSessionId)
+      await refreshSessionNotes(targetPaperId, targetSessionId)
       window.dispatchEvent(new CustomEvent('cognion:notes-updated'))
-      setSessionPanelMode('note')
 
       if (createdCount === 0) {
         window.alert('未生成新的知识点笔记，可能已与现有笔记重复。')

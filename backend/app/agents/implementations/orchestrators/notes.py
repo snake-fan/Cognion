@@ -34,6 +34,7 @@ class NotesOrchestrator(BaseOrchestrator):
         existing_knowledge_units: list[dict[str, object]] | None = None,
         max_points: int | None = None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> dict[str, object]:
         if not session_messages:
@@ -44,6 +45,8 @@ class NotesOrchestrator(BaseOrchestrator):
 
         state = NotesAgentState(
             trace_id=trace_id or uuid4().hex,
+            workflow="notes",
+            paper_id=paper_id,
             session_id=session_id,
             conversation_history=session_messages,
             retrieval_context={
@@ -67,6 +70,8 @@ class NotesOrchestrator(BaseOrchestrator):
                     self._retrieve_candidates_for_note(
                         units=units,
                         existing_knowledge_units=existing_knowledge_units or [],
+                        paper_id=state.paper_id,
+                        session_id=state.session_id,
                     ),
                 )
                 await self.run_steps(state, ["canonicalization_agent"])
@@ -76,6 +81,8 @@ class NotesOrchestrator(BaseOrchestrator):
                         units=units,
                         existing_knowledge_units=existing_knowledge_units or [],
                         limit=12,
+                        paper_id=state.paper_id,
+                        session_id=state.session_id,
                     ),
                 )
                 await self.run_steps(state, ["relation_agent"])
@@ -103,6 +110,8 @@ class NotesOrchestrator(BaseOrchestrator):
         units,
         existing_knowledge_units: list[dict[str, object]],
         limit: int = 8,
+        paper_id: str | None = None,
+        session_id: str | None = None,
     ) -> list[dict[str, object]]:
         if not units or not existing_knowledge_units:
             return []
@@ -110,4 +119,6 @@ class NotesOrchestrator(BaseOrchestrator):
             note_units=units,
             existing_knowledge_units=existing_knowledge_units,
             limit=limit,
+            paper_id=paper_id,
+            session_id=session_id,
         )

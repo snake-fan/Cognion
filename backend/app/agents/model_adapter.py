@@ -10,7 +10,6 @@ from typing import Any
 
 from openai import APITimeoutError, AsyncOpenAI, RateLimitError
 
-from ..services.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
 from .schemas import LLMInvocationLog, ModelCallParams, ModelInvocationResult, ModelMessage, TokenUsage
 
 
@@ -20,14 +19,28 @@ class InvocationLogSink(ABC):
         pass
 
 
-class JsonlInvocationLogSink(InvocationLogSink):
-    def __init__(self, file_path: Path) -> None:
-        self._file_path = file_path
-        self._file_path.parent.mkdir(parents=True, exist_ok=True)
+class TraceJsonInvocationLogSink(InvocationLogSink):
+    def __init__(self, directory_path: Path) -> None:
+        self._directory_path = directory_path
+        self._directory_path.mkdir(parents=True, exist_ok=True)
+
+    def _safe_segment(self, value: str | None, fallback: str) -> str:
+        text = str(value or fallback).strip() or fallback
+        return "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in text)
 
     def write(self, log: LLMInvocationLog) -> None:
-        with self._file_path.open("a", encoding="utf-8") as file:
-            file.write(log.model_dump_json(ensure_ascii=False) + "\n")
+        timestamp = log.timestamp.strftime("%Y%m%dT%H%M%S%f")
+        trace_id = self._safe_segment(log.trace_id, "trace-unknown")
+        workflow = self._safe_segment(log.workflow, "workflow-unknown")
+        paper_dir = f"paper-{self._safe_segment(log.paper_id, 'unknown')}"
+        session_dir = f"session-{self._safe_segment(log.session_id, 'unknown')}"
+        directory_path = self._directory_path / workflow / paper_dir / session_dir
+        directory_path.mkdir(parents=True, exist_ok=True)
+
+        file_path = directory_path / f"{timestamp}-{trace_id}.json"
+        with file_path.open("w", encoding="utf-8") as file:
+            file.write(log.model_dump_json(ensure_ascii=False, indent=2))
+            file.write("\n")
 
 
 class CompositeLogSink(InvocationLogSink):
@@ -50,17 +63,24 @@ class OpenAIModelAdapter:
     def __init__(
         self,
         *,
-        api_key: str | None = OPENAI_API_KEY,
-        base_url: str | None = OPENAI_URL,
-        default_model: str = OPENAI_MODEL,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        default_model: str | None = None,
         default_timeout_seconds: float = 45.0,
         max_retries: int = 2,
         retry_backoff_seconds: float = 1.0,
         log_sink: InvocationLogSink | None = None,
     ) -> None:
-        self._api_key = api_key
-        self._base_url = base_url
-        self._default_model = default_model
+        if api_key is None or base_url is None or default_model is None:
+            from ..services.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
+        else:
+            OPENAI_API_KEY = api_key
+            OPENAI_URL = base_url
+            OPENAI_MODEL = default_model
+
+        self._api_key = OPENAI_API_KEY if api_key is None else api_key
+        self._base_url = OPENAI_URL if base_url is None else base_url
+        self._default_model = OPENAI_MODEL if default_model is None else default_model
         self._default_timeout_seconds = default_timeout_seconds
         self._max_retries = max_retries
         self._retry_backoff_seconds = retry_backoff_seconds
@@ -84,6 +104,8 @@ class OpenAIModelAdapter:
         self,
         *,
         trace_id: str,
+        workflow: str | None,
+        paper_id: str | None,
         session_id: str | None,
         agent_name: str,
         messages: list[ModelMessage],
@@ -98,6 +120,8 @@ class OpenAIModelAdapter:
         self._log_sink.write(
             LLMInvocationLog(
                 trace_id=trace_id,
+                workflow=workflow,
+                paper_id=paper_id,
                 session_id=session_id,
                 agent_name=agent_name,
                 messages=messages,
@@ -113,9 +137,11 @@ class OpenAIModelAdapter:
         self,
         *,
         trace_id: str,
-        session_id: str | None,
         agent_name: str,
         messages: list[ModelMessage],
+        workflow: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
         params: ModelCallParams | None = None,
     ) -> ModelInvocationResult:
         effective_params = params or ModelCallParams()
@@ -149,6 +175,8 @@ class OpenAIModelAdapter:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 self._log_invocation(
                     trace_id=trace_id,
+                    workflow=workflow,
+                    paper_id=paper_id,
                     session_id=session_id,
                     agent_name=agent_name,
                     messages=messages,
@@ -170,6 +198,8 @@ class OpenAIModelAdapter:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 self._log_invocation(
                     trace_id=trace_id,
+                    workflow=workflow,
+                    paper_id=paper_id,
                     session_id=session_id,
                     agent_name=agent_name,
                     messages=messages,
@@ -187,6 +217,8 @@ class OpenAIModelAdapter:
                 latency_ms = int((time.perf_counter() - started) * 1000)
                 self._log_invocation(
                     trace_id=trace_id,
+                    workflow=workflow,
+                    paper_id=paper_id,
                     session_id=session_id,
                     agent_name=agent_name,
                     messages=messages,
@@ -206,9 +238,11 @@ class OpenAIModelAdapter:
         self,
         *,
         trace_id: str,
-        session_id: str | None,
         agent_name: str,
         messages: list[ModelMessage],
+        workflow: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
         params: ModelCallParams | None = None,
     ) -> AsyncGenerator[str, None]:
         effective_params = params or ModelCallParams()
@@ -220,7 +254,10 @@ class OpenAIModelAdapter:
         payload_messages = [message.model_dump() for message in messages]
 
         started = time.perf_counter()
-        raw_chunks: list[dict[str, Any]] = []
+        chunk_count = 0
+        completion_id: str | None = None
+        response_model: str | None = None
+        finish_reason: str | None = None
         collected_text: list[str] = []
 
         try:
@@ -234,9 +271,12 @@ class OpenAIModelAdapter:
                 stream=True,
             )
             async for chunk in stream:
-                raw_chunks.append(chunk.model_dump(mode="json"))
+                chunk_count += 1
+                completion_id = getattr(chunk, "id", completion_id)
+                response_model = getattr(chunk, "model", response_model)
                 if not chunk.choices:
                     continue
+                finish_reason = getattr(chunk.choices[0], "finish_reason", finish_reason)
                 delta = chunk.choices[0].delta
                 text = delta.content if delta else None
                 if isinstance(text, str) and text:
@@ -244,39 +284,94 @@ class OpenAIModelAdapter:
                     yield text
 
             latency_ms = int((time.perf_counter() - started) * 1000)
+            response_text = "".join(collected_text)
             self._log_invocation(
                 trace_id=trace_id,
+                workflow=workflow,
+                paper_id=paper_id,
                 session_id=session_id,
                 agent_name=agent_name,
                 messages=messages,
-                raw_response={"chunks": raw_chunks},
-                pre_parse_text="".join(collected_text),
+                raw_response={
+                    "stream": True,
+                    "completion_id": completion_id,
+                    "model": response_model,
+                    "chunk_count": chunk_count,
+                    "finish_reason": finish_reason,
+                    "text": response_text,
+                },
+                pre_parse_text=response_text,
                 token_usage=None,
                 latency_ms=latency_ms,
                 error=None,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - started) * 1000)
+            response_text = "".join(collected_text)
             self._log_invocation(
                 trace_id=trace_id,
+                workflow=workflow,
+                paper_id=paper_id,
                 session_id=session_id,
                 agent_name=agent_name,
                 messages=messages,
-                raw_response={"chunks": raw_chunks},
-                pre_parse_text="".join(collected_text),
+                raw_response={
+                    "stream": True,
+                    "completion_id": completion_id,
+                    "model": response_model,
+                    "chunk_count": chunk_count,
+                    "finish_reason": finish_reason,
+                    "text": response_text,
+                },
+                pre_parse_text=response_text,
                 token_usage=None,
                 latency_ms=latency_ms,
                 error=str(exc),
             )
             raise ModelAdapterError(str(exc)) from exc
 
+    async def call_via_stream(
+        self,
+        *,
+        trace_id: str,
+        agent_name: str,
+        messages: list[ModelMessage],
+        workflow: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
+        params: ModelCallParams | None = None,
+    ) -> ModelInvocationResult:
+        started = time.perf_counter()
+        chunks: list[str] = []
+        async for token in self.stream(
+            trace_id=trace_id,
+            workflow=workflow,
+            paper_id=paper_id,
+            session_id=session_id,
+            agent_name=agent_name,
+            messages=messages,
+            params=params,
+        ):
+            chunks.append(token)
+
+        response_text = "".join(chunks)
+        return ModelInvocationResult(
+            text=response_text,
+            raw_response={"stream": True, "text": response_text},
+            token_usage=None,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            model=(params.model if params else None) or self._default_model,
+        )
+
     def call_blocking(
         self,
         *,
         trace_id: str,
-        session_id: str | None,
         agent_name: str,
         messages: list[ModelMessage],
+        workflow: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
         params: ModelCallParams | None = None,
     ) -> ModelInvocationResult:
         try:
@@ -285,6 +380,8 @@ class OpenAIModelAdapter:
             return asyncio.run(
                 self.call(
                     trace_id=trace_id,
+                    workflow=workflow,
+                    paper_id=paper_id,
                     session_id=session_id,
                     agent_name=agent_name,
                     messages=messages,
@@ -301,6 +398,8 @@ class OpenAIModelAdapter:
                 result = asyncio.run(
                     self.call(
                         trace_id=trace_id,
+                        workflow=workflow,
+                        paper_id=paper_id,
                         session_id=session_id,
                         agent_name=agent_name,
                         messages=messages,
@@ -323,4 +422,4 @@ class OpenAIModelAdapter:
 
 
 def default_log_sink() -> InvocationLogSink:
-    return JsonlInvocationLogSink(Path(__file__).resolve().parents[3] / "storage" / "llm_invocations" / "invocations.jsonl")
+    return TraceJsonInvocationLogSink(Path(__file__).resolve().parents[2] / "storage" / "llm_invocations")

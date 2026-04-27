@@ -18,6 +18,8 @@ from .schemas import (
 @dataclass(slots=True)
 class BaseAgentState:
     trace_id: str = field(default_factory=lambda: uuid4().hex)
+    workflow: str | None = None
+    paper_id: str | None = None
     session_id: str | None = None
     user_input: str = ""
     conversation_history: list[dict[str, str]] = field(default_factory=list)

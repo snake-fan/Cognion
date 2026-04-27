@@ -12,6 +12,10 @@ from ..templates.unit_extraction import build_unit_extraction_system_template, b
 class UnitExtractionAgent(BaseAgent):
     name = "unit_extraction_agent"
 
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs.setdefault("stream_response", True)
+        super().__init__(*args, **kwargs)
+
     def build_messages(self, state: NotesAgentState):
         note = state.get_intermediate("active_note")
         prompt = build_unit_extraction_user_template(

@@ -24,6 +24,9 @@ def _model_score_candidates(
     query_texts: list[str],
     candidate_groups: list[dict[str, object]],
     agent_name: str,
+    workflow: str | None = None,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, float]:
     if not query_texts or not candidate_groups:
         return {}
@@ -59,7 +62,9 @@ def _model_score_candidates(
     try:
         response = _get_similarity_adapter().call_blocking(
             trace_id=uuid4().hex,
-            session_id=None,
+            workflow=workflow,
+            paper_id=paper_id,
+            session_id=session_id,
             agent_name=agent_name,
             messages=[
                 ModelMessage(role="system", content=system_prompt),
@@ -98,6 +103,9 @@ def _rerank_similarity_candidates(
     candidate_groups: list[dict[str, object]],
     rerank_limit: int = SIMILARITY_RERANK_LIMIT,
     agent_name: str,
+    workflow: str | None = None,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict[str, object]]:
     if not query_texts or not candidate_groups:
         return []
@@ -111,6 +119,9 @@ def _rerank_similarity_candidates(
         query_texts=query_texts,
         candidate_groups=shortlisted,
         agent_name=agent_name,
+        workflow=workflow,
+        paper_id=paper_id,
+        session_id=session_id,
     )
     if not model_scores:
         for item in ranked:
@@ -148,7 +159,6 @@ def retrieve_candidate_units_for_canonicalization(
     session_id: int | None,
     limit: int = 8,
 ) -> list[dict[str, object]]:
-    del session_id
     unit_candidates: list[str] = []
     for unit in note_units:
         unit_candidates.append(unit.canonical_name)
@@ -187,6 +197,9 @@ def retrieve_candidate_units_for_canonicalization(
         query_texts=query_texts,
         candidate_groups=scored,
         agent_name="canonicalization_similarity",
+        workflow="notes",
+        paper_id=paper_id,
+        session_id=str(session_id) if session_id is not None else None,
     )
     return [
         serialize_knowledge_unit_candidate(
@@ -203,6 +216,8 @@ def filter_existing_knowledge_units_for_note(
     note_units: list[ExtractedUnit],
     existing_knowledge_units: list[dict[str, object]],
     limit: int = 8,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict[str, object]]:
     unit_candidates: list[str] = []
     for unit in note_units:
@@ -245,6 +260,9 @@ def filter_existing_knowledge_units_for_note(
         candidate_groups=scored_candidates,
         agent_name="retrieved_unit_similarity",
         rerank_limit=limit,
+        workflow="notes",
+        paper_id=paper_id,
+        session_id=session_id,
     )
     results: list[dict[str, object]] = []
     for item in reranked[:limit]:

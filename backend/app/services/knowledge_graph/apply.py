@@ -134,6 +134,8 @@ def _merge_existing_knowledge_unit_with_llm(
     *,
     existing: KnowledgeUnit,
     note_payload: dict[str, object],
+    paper_id: str | None = None,
+    session_id: int | None = None,
 ) -> dict[str, object] | None:
     knowledge_unit = note_payload.get("knowledge_unit") if isinstance(note_payload.get("knowledge_unit"), dict) else {}
     dedupe_hints = note_payload.get("dedupe_hints") if isinstance(note_payload.get("dedupe_hints"), dict) else {}
@@ -182,7 +184,9 @@ def _merge_existing_knowledge_unit_with_llm(
     try:
         response = _get_merge_adapter().call_blocking(
             trace_id=uuid4().hex,
-            session_id=None,
+            workflow="notes",
+            paper_id=paper_id,
+            session_id=str(session_id) if session_id is not None else None,
             agent_name="knowledge_unit_merge",
             messages=[
                 ModelMessage(role="system", content=system_prompt),
@@ -257,8 +261,16 @@ def _merge_into_existing_knowledge_unit_fallback(
 def _merge_into_existing_knowledge_unit(
     existing: KnowledgeUnit,
     note_payload: dict[str, object],
+    *,
+    paper_id: str | None = None,
+    session_id: int | None = None,
 ) -> None:
-    merged = _merge_existing_knowledge_unit_with_llm(existing=existing, note_payload=note_payload)
+    merged = _merge_existing_knowledge_unit_with_llm(
+        existing=existing,
+        note_payload=note_payload,
+        paper_id=paper_id,
+        session_id=session_id,
+    )
     if merged is None:
         _merge_into_existing_knowledge_unit_fallback(existing, note_payload)
         return
@@ -311,7 +323,12 @@ def _create_or_update_knowledge_unit_from_patch(
 
     _ensure_note_link(db, existing.id, note.id)
     if op.action == CanonicalizationAction.MERGE:
-        _merge_into_existing_knowledge_unit(existing, note_payload)
+        _merge_into_existing_knowledge_unit(
+            existing,
+            note_payload,
+            paper_id=note.paper_id,
+            session_id=note.session_id,
+        )
     db.flush()
     return existing
 

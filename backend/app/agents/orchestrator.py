@@ -24,6 +24,7 @@ class AgentOrchestrator:
         pdf_filename: str | None,
         local_pdf_path: str | None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> str:
         return await self.conversation.answer_qa(
@@ -33,6 +34,7 @@ class AgentOrchestrator:
             pdf_filename=pdf_filename,
             local_pdf_path=local_pdf_path,
             trace_id=trace_id,
+            paper_id=paper_id,
             session_id=session_id,
         )
 
@@ -45,6 +47,7 @@ class AgentOrchestrator:
         pdf_filename: str | None,
         local_pdf_path: str | None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         async for token in self.conversation.answer_qa_stream(
@@ -54,6 +57,7 @@ class AgentOrchestrator:
             pdf_filename=pdf_filename,
             local_pdf_path=local_pdf_path,
             trace_id=trace_id,
+            paper_id=paper_id,
             session_id=session_id,
         ):
             yield token
@@ -69,6 +73,7 @@ class AgentOrchestrator:
         existing_knowledge_units: list[dict[str, object]] | None = None,
         max_points: int | None = None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> dict[str, object]:
         return await self.notes.generate_session_notes(
@@ -80,6 +85,7 @@ class AgentOrchestrator:
             existing_knowledge_units=existing_knowledge_units,
             max_points=max_points,
             trace_id=trace_id,
+            paper_id=paper_id,
             session_id=session_id,
         )
 

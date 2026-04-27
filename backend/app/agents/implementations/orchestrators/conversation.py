@@ -29,6 +29,8 @@ class ConversationOrchestrator(BaseOrchestrator):
         try:
             result = await self.adapter.call(
                 trace_id=trace_id,
+                workflow="conversation",
+                paper_id=None,
                 session_id=None,
                 agent_name="metadata_agent",
                 messages=messages,
@@ -59,10 +61,13 @@ class ConversationOrchestrator(BaseOrchestrator):
         pdf_filename: str | None,
         local_pdf_path: str | None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> str:
         state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
+            workflow="conversation",
+            paper_id=paper_id,
             session_id=session_id,
             user_input=question,
             retrieval_context={"quote": quote, "pdf_filename": pdf_filename},
@@ -89,10 +94,13 @@ class ConversationOrchestrator(BaseOrchestrator):
         pdf_filename: str | None,
         local_pdf_path: str | None,
         trace_id: str | None = None,
+        paper_id: str | None = None,
         session_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
+            workflow="conversation",
+            paper_id=paper_id,
             session_id=session_id,
             user_input=question,
             retrieval_context={"quote": quote, "pdf_filename": pdf_filename},

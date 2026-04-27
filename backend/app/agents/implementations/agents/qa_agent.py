@@ -34,6 +34,8 @@ class QAAgent(BaseAgent):
         messages = self.build_messages(state)
         async for token in self.adapter.stream(
             trace_id=state.trace_id,
+            workflow=state.workflow,
+            paper_id=state.paper_id,
             session_id=state.session_id,
             agent_name=f"{self.name}_stream",
             messages=messages,

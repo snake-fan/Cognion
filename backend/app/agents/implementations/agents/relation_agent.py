@@ -12,6 +12,10 @@ from ..templates.relation import build_relation_system_template, build_relation_
 class RelationAgent(BaseAgent):
     name = "relation_agent"
 
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs.setdefault("stream_response", True)
+        super().__init__(*args, **kwargs)
+
     def build_messages(self, state: NotesAgentState):
         note = state.get_intermediate("active_note")
         note_id = getattr(note, "note_id", "") or ""

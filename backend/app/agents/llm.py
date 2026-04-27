@@ -17,6 +17,8 @@ async def answer_with_context(
     pdf_bytes: bytes | None,
     pdf_filename: str | None,
     local_pdf_path: str | None = None,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     return await _orchestrator.answer_qa(
         question=question,
@@ -24,6 +26,8 @@ async def answer_with_context(
         pdf_bytes=pdf_bytes,
         pdf_filename=pdf_filename,
         local_pdf_path=local_pdf_path,
+        paper_id=paper_id,
+        session_id=session_id,
     )
 
 
@@ -33,6 +37,8 @@ async def answer_with_context_stream(
     pdf_bytes: bytes | None,
     pdf_filename: str | None,
     local_pdf_path: str | None = None,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     async for token in _orchestrator.answer_qa_stream(
         question=question,
@@ -40,6 +46,8 @@ async def answer_with_context_stream(
         pdf_bytes=pdf_bytes,
         pdf_filename=pdf_filename,
         local_pdf_path=local_pdf_path,
+        paper_id=paper_id,
+        session_id=session_id,
     ):
         yield token
 
@@ -52,6 +60,9 @@ async def generate_notes_from_session(
     existing_topic_keys: list[str],
     existing_knowledge_units: list[dict[str, object]] | None = None,
     max_points: int | None = None,
+    trace_id: str | None = None,
+    paper_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, object]:
     return await _orchestrator.generate_session_notes(
         paper_title=paper_title,
@@ -61,4 +72,7 @@ async def generate_notes_from_session(
         existing_topic_keys=existing_topic_keys,
         existing_knowledge_units=existing_knowledge_units,
         max_points=max_points,
+        trace_id=trace_id,
+        paper_id=paper_id,
+        session_id=session_id,
     )

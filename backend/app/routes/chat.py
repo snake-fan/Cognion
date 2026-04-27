@@ -81,6 +81,8 @@ async def ask_about_quote(
                     pdf_bytes=pdf_bytes,
                     pdf_filename=effective_pdf_filename,
                     local_pdf_path=effective_pdf_path,
+                    paper_id=paper_id,
+                    session_id=str(chat_session.id) if chat_session else None,
                 ):
                     if not delta:
                         continue
@@ -106,6 +108,8 @@ async def ask_about_quote(
         pdf_bytes=pdf_bytes,
         pdf_filename=effective_pdf_filename,
         local_pdf_path=effective_pdf_path,
+        paper_id=paper_id,
+        session_id=str(chat_session.id) if chat_session else None,
     )
 
     persist_chat_turn(response_text)
