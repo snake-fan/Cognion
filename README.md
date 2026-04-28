@@ -253,13 +253,15 @@ ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 - 未配置 `OPENAI_API_KEY` 时，问答会返回占位响应（便于本地联调）
 - `DATABASE_URL` 与分项配置同时存在时，通常优先使用 `DATABASE_URL`
 - `PDF_STORAGE_DIR` 为 PDF 文件落盘根目录
-- 开启 `MINERU_ENABLED=true` 后，问答链路会走“上传 OSS → MinerU API 解析 PDF URL”
+- `MINERU_ENABLED=false` 时，问答链路默认走“上传 OSS → 将 PDF URL 直接传给模型 API”
+- `MINERU_ENABLED=true` 时，问答链路走“上传 OSS → MinerU API 解析 PDF URL → Markdown 放入 Prompt”
 - `ALIYUN_OSS_ENDPOINT` 必须填写地域 Endpoint（例如 `https://oss-cn-shanghai.aliyuncs.com/`），不要填写带 Bucket 的域名（例如 `https://cognion.oss-cn-shanghai.aliyuncs.com/`）
+- 直接 PDF URL 模式也需要配置 Aliyun OSS，因为模型 API 必须能访问一个公网或签名 PDF URL；OSS 上传失败时会退回本地 PDF 文本节选
 - MinerU 返回的 Markdown 会缓存到与论文原件同路径、同名 `.md` 文件，后续优先读缓存避免重复解析
 
 ## OSS + MinerU 简单配置教程
 
-下面这套是最小可用流程，按顺序做即可。
+下面这套是最小可用流程。只使用直接 PDF URL 模式时可以不填 `MINERU_API_URL` 和 `MINERU_API_KEY`，但仍需要 OSS 配置。
 
 ### 1) 准备账号与密钥
 
@@ -279,9 +281,9 @@ ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 ### 3) 在 `backend/.env` 填写配置
 
 ```env
-MINERU_ENABLED=true
-MINERU_API_URL=https://mineru.net/api/v4/extract/task
-MINERU_API_KEY=your_mineru_token
+MINERU_ENABLED=false
+MINERU_API_URL=
+MINERU_API_KEY=
 MINERU_MODEL=vlm
 MINERU_TIMEOUT_SECONDS=180
 MINERU_POLL_INTERVAL_SECONDS=3
@@ -296,6 +298,8 @@ ALIYUN_OSS_KEY_PREFIX=cognion/mineru
 ALIYUN_OSS_PUBLIC_BASE_URL=https://your_bucket.oss-cn-shanghai.aliyuncs.com/
 ALIYUN_OSS_SIGNED_URL_EXPIRES_SECONDS=900
 ```
+
+如果要启用 MinerU Markdown 解析，再把 `MINERU_ENABLED` 改成 `true` 并填写 MinerU Token。
 
 ### 4) 启动后端并做一次链路验证
 

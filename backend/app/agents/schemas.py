@@ -40,9 +40,27 @@ class RelationType(str, Enum):
     SAME_AS = "same_as"
 
 
+ModelContentPart = dict[str, Any]
+ModelMessageContent = str | list[ModelContentPart]
+
+
+def model_message_content_to_text(content: ModelMessageContent) -> str:
+    if isinstance(content, str):
+        return content
+
+    text_parts: list[str] = []
+    for part in content:
+        if part.get("type") != "text":
+            continue
+        text = part.get("text")
+        if isinstance(text, str):
+            text_parts.append(text)
+    return "\n".join(text_parts)
+
+
 class ModelMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
-    content: str
+    content: ModelMessageContent
 
 
 class TokenUsage(BaseModel):

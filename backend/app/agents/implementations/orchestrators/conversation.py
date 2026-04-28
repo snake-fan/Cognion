@@ -7,7 +7,7 @@ from ....services.mineru import extract_pdf_context_for_qa
 from ....services.pdf_storage import extract_pdf_text
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ...parsers import parse_metadata
-from ...schemas import ModelCallParams
+from ...schemas import ModelCallParams, model_message_content_to_text
 from ...state import ConversationAgentState, build_messages
 from ..agents.qa_agent import QAAgent
 from ..templates.metadata import build_metadata_system_template, build_metadata_user_template
@@ -72,17 +72,20 @@ class ConversationOrchestrator(BaseOrchestrator):
             user_input=question,
             retrieval_context={"quote": quote, "pdf_filename": pdf_filename},
         )
-        state.pdf_context = await extract_pdf_context_for_qa(
+        pdf_context = await extract_pdf_context_for_qa(
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
             local_pdf_path=local_pdf_path,
         )
+        state.pdf_context = pdf_context.text
+        state.pdf_file_url = pdf_context.file_url
 
         try:
             await self.run_steps(state, ["qa_agent"])
             return str(state.final_result or "模型未返回可解析内容。")
         except ModelAdapterError:
-            prompt = self.get_agent("qa_agent").build_messages(state)[1].content
+            prompt_message = self.get_agent("qa_agent").build_messages(state)[1]
+            prompt = model_message_content_to_text(prompt_message.content)
             return build_fallback_message(prompt)
 
     async def answer_qa_stream(
@@ -105,16 +108,19 @@ class ConversationOrchestrator(BaseOrchestrator):
             user_input=question,
             retrieval_context={"quote": quote, "pdf_filename": pdf_filename},
         )
-        state.pdf_context = await extract_pdf_context_for_qa(
+        pdf_context = await extract_pdf_context_for_qa(
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
             local_pdf_path=local_pdf_path,
         )
+        state.pdf_context = pdf_context.text
+        state.pdf_file_url = pdf_context.file_url
 
         qa_agent = self.get_agent("qa_agent")
         try:
             async for token in qa_agent.stream(state):
                 yield token
         except ModelAdapterError:
-            prompt = qa_agent.build_messages(state)[1].content
+            prompt_message = qa_agent.build_messages(state)[1]
+            prompt = model_message_content_to_text(prompt_message.content)
             yield build_fallback_message(prompt)

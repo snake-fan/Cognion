@@ -22,8 +22,8 @@ from backend.app.agents.schemas import ModelCallParams, ModelMessage
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke-test OpenAIModelAdapter.call with a tiny non-streaming request.")
-    parser.add_argument("--timeout", type=float, default=30.0, help="OpenAI request timeout in seconds.")
-    parser.add_argument("--wait-timeout", type=float, default=40.0, help="Outer asyncio wait timeout in seconds.")
+    parser.add_argument("--timeout", type=float, default=300.0, help="OpenAI request timeout in seconds.")
+    parser.add_argument("--wait-timeout", type=float, default=300.0, help="Outer asyncio wait timeout in seconds.")
     parser.add_argument("--max-tokens", type=int, default=32, help="Maximum completion tokens.")
     args = parser.parse_args()
 
@@ -39,7 +39,16 @@ async def main() -> None:
     )
     messages = [
         ModelMessage(role="system", content="You are a concise test assistant."),
-        ModelMessage(role="user", content="Reply with exactly: ok"),
+        ModelMessage(role="user", content=[
+            {
+                "type":"text",
+                "text":"What is in this file?"
+            }, 
+            {
+                "type":"input_file",
+                "file_url":"https://cognion-outside.oss-ap-southeast-1.aliyuncs.com/cognion/mineru/6c7f546de41c4f8c9b7bb86b1ef0c5b4.pdf"
+            }
+        ]),
     ]
 
     print(f"model={openai_model}")

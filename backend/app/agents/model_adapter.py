@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import threading
 from abc import ABC, abstractmethod
@@ -8,6 +9,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+import httpx
 from openai import APITimeoutError, AsyncOpenAI, RateLimitError
 
 from .schemas import LLMInvocationLog, ModelCallParams, ModelInvocationResult, ModelMessage, TokenUsage
@@ -70,6 +72,7 @@ class OpenAIModelAdapter:
         max_retries: int = 2,
         retry_backoff_seconds: float = 1.0,
         log_sink: InvocationLogSink | None = None,
+        trust_env: bool | None = None,
     ) -> None:
         if api_key is None or base_url is None or default_model is None:
             from ..services.config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL
@@ -85,20 +88,109 @@ class OpenAIModelAdapter:
         self._max_retries = max_retries
         self._retry_backoff_seconds = retry_backoff_seconds
         self._log_sink = log_sink
+        self._trust_env = trust_env if trust_env is not None else os.getenv("OPENAI_TRUST_ENV", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     def _build_client(self) -> AsyncOpenAI:
         if not self._api_key:
             raise ModelAdapterError("OPENAI_API_KEY is not configured")
-        return AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        return AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            max_retries=0,
+            http_client=httpx.AsyncClient(trust_env=self._trust_env),
+        )
 
     def _normalize_usage(self, usage: Any) -> TokenUsage | None:
         if usage is None:
             return None
         return TokenUsage(
-            prompt_tokens=getattr(usage, "prompt_tokens", None),
-            completion_tokens=getattr(usage, "completion_tokens", None),
+            prompt_tokens=getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", None),
+            completion_tokens=getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", None),
             total_tokens=getattr(usage, "total_tokens", None),
         )
+
+    def _uses_responses_api(self, messages: list[ModelMessage]) -> bool:
+        for message in messages:
+            if not isinstance(message.content, list):
+                continue
+            for part in message.content:
+                part_type = part.get("type")
+                if isinstance(part_type, str) and part_type.startswith("input_"):
+                    return True
+                if part.get("file_url"):
+                    return True
+        return False
+
+    def _responses_content_part(self, part: dict[str, Any]) -> dict[str, Any]:
+        part_type = part.get("type")
+        if part_type == "text":
+            return {"type": "input_text", "text": str(part.get("text") or "")}
+        if part_type == "image_url":
+            image_url = part.get("image_url")
+            if isinstance(image_url, dict):
+                converted = {"type": "input_image", "image_url": str(image_url.get("url") or "")}
+                if image_url.get("detail"):
+                    converted["detail"] = image_url["detail"]
+                return converted
+            return {"type": "input_image", "image_url": str(image_url or "")}
+        if part_type == "file":
+            file_payload = part.get("file")
+            converted = dict(file_payload) if isinstance(file_payload, dict) else {}
+            converted["type"] = "input_file"
+            return converted
+        return dict(part)
+
+    def _build_responses_input(self, messages: list[ModelMessage]) -> list[dict[str, Any]]:
+        input_messages: list[dict[str, Any]] = []
+        for message in messages:
+            role = message.role if message.role in {"system", "user", "assistant"} else "user"
+            content: str | list[dict[str, Any]]
+            if isinstance(message.content, list):
+                content = [self._responses_content_part(part) for part in message.content]
+            else:
+                content = message.content
+            input_messages.append({"role": role, "content": content})
+        return input_messages
+
+    def _response_output_text(self, response: Any) -> str:
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str):
+            return output_text
+
+        texts: list[str] = []
+        for output in getattr(response, "output", []) or []:
+            for content in getattr(output, "content", []) or []:
+                if getattr(content, "type", None) == "output_text":
+                    text = getattr(content, "text", None)
+                    if isinstance(text, str):
+                        texts.append(text)
+        return "".join(texts)
+
+    def _responses_create_kwargs(
+        self,
+        *,
+        model: str,
+        messages: list[ModelMessage],
+        temperature: float,
+        timeout_seconds: float,
+        params: ModelCallParams,
+    ) -> dict[str, Any]:
+        response_kwargs: dict[str, Any] = {
+            "model": model,
+            "input": self._build_responses_input(messages),
+            "temperature": temperature,
+            "timeout": timeout_seconds,
+        }
+        if params.max_tokens is not None:
+            response_kwargs["max_output_tokens"] = params.max_tokens
+        if params.response_format is not None:
+            response_kwargs["text"] = {"format": params.response_format}
+        return response_kwargs
 
     def _log_invocation(
         self,
@@ -150,7 +242,8 @@ class OpenAIModelAdapter:
         timeout_seconds = effective_params.timeout_seconds or self._default_timeout_seconds
 
         client = self._build_client()
-        payload_messages = [message.model_dump() for message in messages]
+        payload_messages = [message.model_dump(mode="json") for message in messages]
+        use_responses_api = self._uses_responses_api(messages)
 
         last_error: Exception | None = None
         for attempt in range(self._max_retries + 1):
@@ -159,17 +252,28 @@ class OpenAIModelAdapter:
             response_text = ""
             token_usage: TokenUsage | None = None
             try:
-                completion = await client.chat.completions.create(
-                    model=model,
-                    messages=payload_messages,
-                    temperature=temperature,
-                    response_format=effective_params.response_format,
-                    timeout=timeout_seconds,
-                    max_tokens=effective_params.max_tokens,
-                )
+                if use_responses_api:
+                    response_kwargs = self._responses_create_kwargs(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        timeout_seconds=timeout_seconds,
+                        params=effective_params,
+                    )
+                    completion = await client.responses.create(**response_kwargs)
+                    response_text = self._response_output_text(completion)
+                else:
+                    completion = await client.chat.completions.create(
+                        model=model,
+                        messages=payload_messages,
+                        temperature=temperature,
+                        response_format=effective_params.response_format,
+                        timeout=timeout_seconds,
+                        max_tokens=effective_params.max_tokens,
+                    )
+                    if completion.choices and completion.choices[0].message:
+                        response_text = completion.choices[0].message.content or ""
                 raw_response = completion.model_dump(mode="json")
-                if completion.choices and completion.choices[0].message:
-                    response_text = completion.choices[0].message.content or ""
                 token_usage = self._normalize_usage(completion.usage)
 
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -251,7 +355,8 @@ class OpenAIModelAdapter:
         timeout_seconds = effective_params.timeout_seconds or self._default_timeout_seconds
 
         client = self._build_client()
-        payload_messages = [message.model_dump() for message in messages]
+        payload_messages = [message.model_dump(mode="json") for message in messages]
+        use_responses_api = self._uses_responses_api(messages)
 
         started = time.perf_counter()
         chunk_count = 0
@@ -259,29 +364,62 @@ class OpenAIModelAdapter:
         response_model: str | None = None
         finish_reason: str | None = None
         collected_text: list[str] = []
+        token_usage: TokenUsage | None = None
 
         try:
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=payload_messages,
-                temperature=temperature,
-                response_format=effective_params.response_format,
-                timeout=timeout_seconds,
-                max_tokens=effective_params.max_tokens,
-                stream=True,
-            )
-            async for chunk in stream:
-                chunk_count += 1
-                completion_id = getattr(chunk, "id", completion_id)
-                response_model = getattr(chunk, "model", response_model)
-                if not chunk.choices:
-                    continue
-                finish_reason = getattr(chunk.choices[0], "finish_reason", finish_reason)
-                delta = chunk.choices[0].delta
-                text = delta.content if delta else None
-                if isinstance(text, str) and text:
-                    collected_text.append(text)
-                    yield text
+            if use_responses_api:
+                response_kwargs = self._responses_create_kwargs(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    timeout_seconds=timeout_seconds,
+                    params=effective_params,
+                )
+                stream = await client.responses.create(**response_kwargs, stream=True)
+                async for event in stream:
+                    chunk_count += 1
+                    event_type = getattr(event, "type", "")
+                    if event_type == "response.output_text.delta":
+                        text = getattr(event, "delta", None)
+                        if isinstance(text, str) and text:
+                            collected_text.append(text)
+                            yield text
+                        continue
+
+                    response = getattr(event, "response", None)
+                    if response is None:
+                        continue
+                    completion_id = getattr(response, "id", completion_id)
+                    response_model = getattr(response, "model", response_model)
+                    if event_type == "response.completed":
+                        finish_reason = "completed"
+                    elif event_type == "response.incomplete":
+                        finish_reason = "incomplete"
+                    elif event_type == "response.failed":
+                        finish_reason = "failed"
+                    token_usage = self._normalize_usage(getattr(response, "usage", None)) or token_usage
+            else:
+                stream = await client.chat.completions.create(
+                    model=model,
+                    messages=payload_messages,
+                    temperature=temperature,
+                    response_format=effective_params.response_format,
+                    timeout=timeout_seconds,
+                    max_tokens=effective_params.max_tokens,
+                    stream=True,
+                )
+                async for chunk in stream:
+                    chunk_count += 1
+                    completion_id = getattr(chunk, "id", completion_id)
+                    response_model = getattr(chunk, "model", response_model)
+                    if not chunk.choices:
+                        continue
+                    finish_reason = getattr(chunk.choices[0], "finish_reason", finish_reason)
+                    delta = chunk.choices[0].delta
+                    text = delta.content if delta else None
+                    if isinstance(text, str) and text:
+                        collected_text.append(text)
+                        yield text
 
             latency_ms = int((time.perf_counter() - started) * 1000)
             response_text = "".join(collected_text)
@@ -301,13 +439,63 @@ class OpenAIModelAdapter:
                     "text": response_text,
                 },
                 pre_parse_text=response_text,
-                token_usage=None,
+                token_usage=token_usage,
                 latency_ms=latency_ms,
                 error=None,
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - started) * 1000)
             response_text = "".join(collected_text)
+            if use_responses_api and not collected_text:
+                stream_error = str(exc)
+                try:
+                    response_kwargs = self._responses_create_kwargs(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        timeout_seconds=timeout_seconds,
+                        params=effective_params,
+                    )
+                    completion = await client.responses.create(**response_kwargs)
+                    raw_response = completion.model_dump(mode="json")
+                    response_text = self._response_output_text(completion)
+                    token_usage = self._normalize_usage(completion.usage)
+                    completion_id = raw_response.get("id") if isinstance(raw_response, dict) else completion_id
+                    response_model = raw_response.get("model") if isinstance(raw_response, dict) else response_model
+                    finish_reason = raw_response.get("status") if isinstance(raw_response, dict) else "completed"
+                    if response_text:
+                        collected_text.append(response_text)
+                        yield response_text
+
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    self._log_invocation(
+                        trace_id=trace_id,
+                        workflow=workflow,
+                        paper_id=paper_id,
+                        session_id=session_id,
+                        agent_name=agent_name,
+                        messages=messages,
+                        raw_response={
+                            "stream": True,
+                            "fallback": "responses_non_stream",
+                            "stream_error": stream_error,
+                            "completion_id": completion_id,
+                            "model": response_model,
+                            "chunk_count": 1 if response_text else 0,
+                            "finish_reason": finish_reason,
+                            "text": response_text,
+                            "response": raw_response,
+                        },
+                        pre_parse_text=response_text,
+                        token_usage=token_usage,
+                        latency_ms=latency_ms,
+                        error=None,
+                    )
+                    return
+                except Exception as fallback_exc:
+                    exc = fallback_exc
+                    response_text = "".join(collected_text)
+
             self._log_invocation(
                 trace_id=trace_id,
                 workflow=workflow,
@@ -324,7 +512,7 @@ class OpenAIModelAdapter:
                     "text": response_text,
                 },
                 pre_parse_text=response_text,
-                token_usage=None,
+                token_usage=token_usage,
                 latency_ms=latency_ms,
                 error=str(exc),
             )

@@ -18,6 +18,7 @@ class QAAgent(BaseAgent):
             quote=str(state.retrieval_context.get("quote") or ""),
             pdf_filename=str(state.retrieval_context.get("pdf_filename") or ""),
             pdf_context=state.pdf_context,
+            pdf_file_url=state.pdf_file_url,
         )
         return build_messages(build_qa_system_template(), prompt)
 

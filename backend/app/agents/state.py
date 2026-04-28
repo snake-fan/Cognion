@@ -5,13 +5,14 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from .schemas import ModelMessage
 from .schemas import (
     CanonicalDecision,
+    ExtractedUnit,
     GraphPatch,
+    ModelMessage,
+    ModelMessageContent,
     RelationDecision,
     StructuredNote,
-    ExtractedUnit,
 )
 
 
@@ -24,6 +25,7 @@ class BaseAgentState:
     user_input: str = ""
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     pdf_context: str = ""
+    pdf_file_url: str = ""
     retrieval_context: dict[str, Any] = field(default_factory=dict)
     intermediate: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -68,7 +70,7 @@ class NotesAgentState(BaseAgentState):
         self.relation_decisions[note_id] = decisions
 
 
-def build_messages(system_prompt: str, user_prompt: str) -> list[ModelMessage]:
+def build_messages(system_prompt: str, user_prompt: ModelMessageContent) -> list[ModelMessage]:
     return [
         ModelMessage(role="system", content=system_prompt),
         ModelMessage(role="user", content=user_prompt),

@@ -2,6 +2,7 @@ import asyncio
 import importlib
 import logging
 import zipfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
@@ -29,6 +30,13 @@ from .config import (
 from .pdf_storage import extract_pdf_text
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PdfQAContext:
+    text: str = ""
+    file_url: str = ""
+    source: str = "empty"
 
 
 def _extract_text_from_payload(payload: object) -> str:
@@ -426,11 +434,7 @@ async def extract_pdf_context_for_qa(
     pdf_filename: str | None,
     local_pdf_path: str | None = None,
     max_chars: int = MINERU_MAX_CHARS,
-) -> str:
-    cached_markdown = _read_markdown_cache(local_pdf_path, max_chars=max_chars)
-    if cached_markdown:
-        return cached_markdown
-
+) -> PdfQAContext:
     source_bytes = pdf_bytes
     if source_bytes is None and local_pdf_path:
         try:
@@ -439,10 +443,13 @@ async def extract_pdf_context_for_qa(
             source_bytes = None
 
     if not source_bytes:
-        return ""
+        return PdfQAContext()
 
-    parsed_text = ""
     if MINERU_ENABLED:
+        cached_markdown = _read_markdown_cache(local_pdf_path, max_chars=max_chars)
+        if cached_markdown:
+            return PdfQAContext(text=cached_markdown, source="cache")
+
         parsed_text = await extract_pdf_text_with_mineru_api(
             source_bytes,
             pdf_filename,
@@ -450,6 +457,17 @@ async def extract_pdf_context_for_qa(
         )
         if parsed_text:
             _write_markdown_cache(local_pdf_path, parsed_text)
-            return parsed_text
+            return PdfQAContext(text=parsed_text, source="mineru")
 
-    return extract_pdf_text(source_bytes, max_chars=min(max_chars, 12000))
+        fallback_text = extract_pdf_text(source_bytes, max_chars=min(max_chars, 12000))
+        return PdfQAContext(text=fallback_text, source="local_text" if fallback_text else "empty")
+
+    if ALIYUN_OSS_ENABLED:
+        public_pdf_url = upload_pdf_to_aliyun_oss(source_bytes, pdf_filename)
+        if public_pdf_url:
+            return PdfQAContext(file_url=public_pdf_url, source="file_url")
+    else:
+        logger.info("Direct PDF URL context skipped: Aliyun OSS disabled")
+
+    fallback_text = extract_pdf_text(source_bytes, max_chars=min(max_chars, 12000))
+    return PdfQAContext(text=fallback_text, source="local_text" if fallback_text else "empty")
