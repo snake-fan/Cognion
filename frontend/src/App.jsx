@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react'
-import cognionLogo from './assets/cognion_logo_light.png'
+import cognionLogo from './assets/cognion_logo_dark.png'
 import SidebarNav from './components/SidebarNav'
 import useLibraryData from './hooks/useLibraryData'
 import useKnowledgeGraphData from './hooks/useKnowledgeGraphData'
@@ -37,15 +37,6 @@ const NAV_ICONS = {
       <path d="M7 14.5a5 5 0 0 1 10 0" />
       <path d="M8 19h8" />
       <path d="M10 22h4" />
-    </svg>
-  ),
-  workspace: (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="3" y="4" width="6" height="6" rx="1.2" />
-      <rect x="15" y="4" width="6" height="6" rx="1.2" />
-      <rect x="9" y="14" width="6" height="6" rx="1.2" />
-      <path d="M9 7h6" />
-      <path d="M12 10v4" />
     </svg>
   )
 }

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchKnowledgeGraph } from '../services/api'
 
 const CANVAS_WIDTH = 1040
 const CANVAS_HEIGHT = 720
+const UNIT_TYPE_LAYOUT_ORDER = ['claim', 'method', 'question', 'concept']
 
 function aggregateEdges(edges) {
   const grouped = new Map()
@@ -14,14 +15,12 @@ function aggregateEdges(edges) {
       continue
     }
 
-    const leftId = Math.min(fromId, toId)
-    const rightId = Math.max(fromId, toId)
-    const key = `${leftId}:${rightId}`
+    const key = `${fromId}:${toId}`
     const relation = String(edge?.relation || 'RELATED_TO')
     const entry = grouped.get(key) || {
       id: key,
-      from_unit_id: leftId,
-      to_unit_id: rightId,
+      from_unit_id: fromId,
+      to_unit_id: toId,
       relations: [],
       relation_set: new Set(),
       raw_edge_ids: []
@@ -43,40 +42,175 @@ function aggregateEdges(edges) {
   }))
 }
 
-function buildInitialUnitPositions(units, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
+function buildDegreeCountMap(edges) {
+  const counts = new Map()
+  for (const edge of Array.isArray(edges) ? edges : []) {
+    counts.set(edge.from_unit_id, (counts.get(edge.from_unit_id) || 0) + 1)
+  }
+  return counts
+}
+
+function compareUnitType(left, right) {
+  const leftType = String(left || 'concept').toLowerCase()
+  const rightType = String(right || 'concept').toLowerCase()
+  const leftIndex = UNIT_TYPE_LAYOUT_ORDER.indexOf(leftType)
+  const rightIndex = UNIT_TYPE_LAYOUT_ORDER.indexOf(rightType)
+  const leftRank = leftIndex === -1 ? UNIT_TYPE_LAYOUT_ORDER.length : leftIndex
+  const rightRank = rightIndex === -1 ? UNIT_TYPE_LAYOUT_ORDER.length : rightIndex
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank
+  }
+  return leftType.localeCompare(rightType)
+}
+
+function sortUnitsForLayout(units, edges) {
+  const degreeCounts = buildDegreeCountMap(edges)
+  return [...units].sort((left, right) => {
+    const degreeDelta = (degreeCounts.get(right.id) || 0) - (degreeCounts.get(left.id) || 0)
+    if (degreeDelta !== 0) {
+      return degreeDelta
+    }
+    const noteDelta = (right.note_ids?.length || 0) - (left.note_ids?.length || 0)
+    if (noteDelta !== 0) {
+      return noteDelta
+    }
+    return String(left.term || '').localeCompare(String(right.term || ''))
+  })
+}
+
+function clampToCanvas(point, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
+  return {
+    x: Math.max(58, Math.min(width - 58, Math.round(point.x))),
+    y: Math.max(58, Math.min(height - 58, Math.round(point.y)))
+  }
+}
+
+function buildInitialUnitPositions(units, edges = [], width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
   if (!Array.isArray(units) || units.length === 0) {
     return {}
   }
 
   const centerX = width / 2
   const centerY = height / 2
-  const total = units.length
   const positions = {}
 
-  if (total === 1) {
+  if (units.length === 1) {
     positions[units[0].id] = { x: centerX, y: centerY }
     return positions
   }
 
-  const rings = Math.max(1, Math.ceil(total / 12))
-  units.forEach((unit, index) => {
-    const ring = index % rings
-    const radius = 120 + ring * 92
-    const angle = (index / total) * Math.PI * 2 - Math.PI / 2
-    positions[unit.id] = {
-      x: Math.round(centerX + Math.cos(angle) * radius),
-      y: Math.round(centerY + Math.sin(angle) * radius)
-    }
+  const grouped = new Map()
+  for (const unit of units) {
+    const unitType = String(unit.unit_type || 'concept').toLowerCase()
+    const group = grouped.get(unitType) || []
+    group.push(unit)
+    grouped.set(unitType, group)
+  }
+
+  const groups = [...grouped.entries()].sort(([left], [right]) => compareUnitType(left, right))
+  const marginX = 88
+  const marginTop = 92
+  const marginBottom = 80
+  const bandWidth = (width - marginX * 2) / groups.length
+  const usableHeight = height - marginTop - marginBottom
+
+  groups.forEach(([unitType, groupUnits], groupIndex) => {
+    const sortedUnits = sortUnitsForLayout(groupUnits, edges)
+    const maxRowsPerColumn = Math.max(1, Math.floor(usableHeight / 76))
+    const columnCount = Math.max(1, Math.ceil(sortedUnits.length / maxRowsPerColumn))
+    const rowCount = Math.ceil(sortedUnits.length / columnCount)
+    const rowGap = rowCount <= 1 ? 0 : Math.min(88, Math.max(62, usableHeight / (rowCount - 1)))
+    const columnGap = columnCount <= 1 ? 0 : Math.min(82, Math.max(54, (bandWidth - 74) / (columnCount - 1)))
+    const groupCenterX = marginX + bandWidth * groupIndex + bandWidth / 2
+    const columnsWidth = (columnCount - 1) * columnGap
+
+    sortedUnits.forEach((unit, index) => {
+      const column = Math.floor(index / rowCount)
+      const row = index % rowCount
+      positions[unit.id] = clampToCanvas(
+        {
+          x: groupCenterX - columnsWidth / 2 + column * columnGap,
+          y: marginTop + row * rowGap
+        },
+        width,
+        height
+      )
+    })
   })
 
   return positions
 }
 
-function clampPoint(point) {
-  return {
-    x: Math.max(58, Math.min(CANVAS_WIDTH - 58, Math.round(point.x))),
-    y: Math.max(58, Math.min(CANVAS_HEIGHT - 58, Math.round(point.y)))
+function placeFocusedUnits(positions, units, startX, width, height, maxColumns = 2) {
+  if (units.length === 0) {
+    return
   }
+
+  const top = 92
+  const bottom = height - 80
+  const columnCount = Math.min(maxColumns, Math.max(1, Math.ceil(units.length / 7)))
+  const rowCount = Math.ceil(units.length / columnCount)
+  const rowGap = rowCount <= 1 ? 0 : Math.min(86, Math.max(58, (bottom - top) / (rowCount - 1)))
+  const columnGap = columnCount <= 1 ? 0 : 116
+  const totalHeight = (rowCount - 1) * rowGap
+  const startY = height / 2 - totalHeight / 2
+
+  units.forEach((unit, index) => {
+    const column = Math.floor(index / rowCount)
+    const row = index % rowCount
+    positions[unit.id] = clampToCanvas(
+      {
+        x: startX + column * columnGap,
+        y: startY + row * rowGap
+      },
+      width,
+      height
+    )
+  })
+}
+
+function buildFocusedUnitPositions(units, edges, selectedUnit, expansionDepth, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
+  if (!selectedUnit) {
+    return buildInitialUnitPositions(units, edges, width, height)
+  }
+
+  const unitMap = new Map(units.map((unit) => [unit.id, unit]))
+  const firstHopIds = new Set()
+  const secondHopIds = new Set()
+
+  for (const edge of edges) {
+    if (edge.from_unit_id === selectedUnit.id && unitMap.has(edge.to_unit_id)) {
+      firstHopIds.add(edge.to_unit_id)
+    }
+  }
+
+  if (expansionDepth >= 2) {
+    for (const edge of edges) {
+      if (firstHopIds.has(edge.from_unit_id) && unitMap.has(edge.to_unit_id) && edge.to_unit_id !== selectedUnit.id) {
+        secondHopIds.add(edge.to_unit_id)
+      }
+    }
+  }
+
+  const sortedUnits = sortUnitsForLayout(units, edges)
+  const firstHopUnits = sortedUnits.filter((unit) => firstHopIds.has(unit.id))
+  const secondHopUnits = sortedUnits.filter((unit) => secondHopIds.has(unit.id) && !firstHopIds.has(unit.id))
+  const otherUnits = sortedUnits.filter(
+    (unit) => unit.id !== selectedUnit.id && !firstHopIds.has(unit.id) && !secondHopIds.has(unit.id)
+  )
+  const positions = {
+    [selectedUnit.id]: { x: 260, y: height / 2 }
+  }
+
+  placeFocusedUnits(positions, firstHopUnits, 520, width, height, 2)
+  placeFocusedUnits(positions, secondHopUnits, 800, width, height, 2)
+  placeFocusedUnits(positions, otherUnits, 930, width, height, 1)
+
+  return positions
+}
+
+function clampPoint(point) {
+  return clampToCanvas(point)
 }
 
 function useKnowledgeGraphData({ isActive = false } = {}) {
@@ -98,6 +232,7 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
   const [sortMode, setSortMode] = useState('centrality')
   const [positions, setPositions] = useState({})
   const [refreshToken, setRefreshToken] = useState(0)
+  const lastAutoLayoutKeyRef = useRef('')
 
   useEffect(() => {
     if (!isActive) {
@@ -122,7 +257,7 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
         }
         setGraph(nextGraph)
         setPositions((prev) => {
-          const seeded = buildInitialUnitPositions(nextGraph.units)
+          const seeded = buildInitialUnitPositions(nextGraph.units, nextGraph.edges)
           const next = { ...seeded, ...prev }
           for (const unit of nextGraph.units) {
             if (!next[unit.id]) {
@@ -252,9 +387,6 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
       if (edge.from_unit_id === selectedUnit.id) {
         neighbors.add(edge.to_unit_id)
       }
-      if (edge.to_unit_id === selectedUnit.id) {
-        neighbors.add(edge.from_unit_id)
-      }
     }
     return neighbors
   }, [graph.edges, selectedUnit])
@@ -264,13 +396,11 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
       return new Set()
     }
 
-    const neighbors = new Set(neighborUnitIds)
+    const firstHopUnitIds = new Set(neighborUnitIds)
+    const neighbors = new Set(firstHopUnitIds)
     for (const edge of graph.edges) {
-      if (neighbors.has(edge.from_unit_id)) {
+      if (firstHopUnitIds.has(edge.from_unit_id)) {
         neighbors.add(edge.to_unit_id)
-      }
-      if (neighbors.has(edge.to_unit_id)) {
-        neighbors.add(edge.from_unit_id)
       }
     }
     return neighbors
@@ -280,7 +410,6 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
     const next = new Map()
     for (const edge of graph.edges) {
       next.set(edge.from_unit_id, (next.get(edge.from_unit_id) || 0) + 1)
-      next.set(edge.to_unit_id, (next.get(edge.to_unit_id) || 0) + 1)
     }
     return next
   }, [graph.edges])
@@ -325,9 +454,54 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
   )
 
   const edges = useMemo(
-    () => graph.edges.filter((edge) => visibleUnitIds.has(edge.from_unit_id) && visibleUnitIds.has(edge.to_unit_id)),
-    [graph.edges, visibleUnitIds]
+    () =>
+      graph.edges.filter((edge) => {
+        if (!visibleUnitIds.has(edge.from_unit_id) || !visibleUnitIds.has(edge.to_unit_id)) {
+          return false
+        }
+        if (focusNeighborsOnly && selectedUnit) {
+          if (edge.to_unit_id === selectedUnit.id) {
+            return false
+          }
+          return edge.from_unit_id === selectedUnit.id || (expansionDepth >= 2 && neighborUnitIds.has(edge.from_unit_id))
+        }
+        return true
+      }),
+    [expansionDepth, focusNeighborsOnly, graph.edges, neighborUnitIds, selectedUnit, visibleUnitIds]
   )
+
+  useEffect(() => {
+    if (!focusNeighborsOnly || !selectedUnit || units.length === 0) {
+      return
+    }
+
+    const layoutKey = [
+      'focus',
+      selectedUnit.id,
+      expansionDepth,
+      units.map((unit) => unit.id).join(','),
+      edges.map((edge) => edge.id).join(',')
+    ].join(':')
+
+    if (lastAutoLayoutKeyRef.current === layoutKey) {
+      return
+    }
+
+    lastAutoLayoutKeyRef.current = layoutKey
+    setPositions((prev) => ({
+      ...prev,
+      ...buildFocusedUnitPositions(units, edges, selectedUnit, expansionDepth)
+    }))
+  }, [edges, expansionDepth, focusNeighborsOnly, selectedUnit, units])
+
+  useEffect(() => {
+    if (focusNeighborsOnly || !lastAutoLayoutKeyRef.current.startsWith('focus:')) {
+      return
+    }
+
+    lastAutoLayoutKeyRef.current = ''
+    setPositions(buildInitialUnitPositions(graph.units, graph.edges))
+  }, [focusNeighborsOnly, graph.edges, graph.units])
 
   const relatedNotes = useMemo(() => {
     if (!selectedUnit?.note_ids?.length) {
@@ -360,7 +534,14 @@ function useKnowledgeGraphData({ isActive = false } = {}) {
   }
 
   function resetLayout() {
-    setPositions(buildInitialUnitPositions(graph.units))
+    if (focusNeighborsOnly && selectedUnit) {
+      setPositions((prev) => ({
+        ...prev,
+        ...buildFocusedUnitPositions(units, edges, selectedUnit, expansionDepth)
+      }))
+      return
+    }
+    setPositions(buildInitialUnitPositions(graph.units, graph.edges))
   }
 
   function refreshGraph() {

@@ -4,11 +4,12 @@ const CANVAS_WIDTH = 1040
 const CANVAS_HEIGHT = 720
 const MIN_VIEWBOX_WIDTH = 360
 const MAX_VIEWBOX_WIDTH = 2200
+const UNIT_TYPE_LAYOUT_ORDER = ['claim', 'method', 'question', 'concept']
 
 function unitColor(unitType) {
   const normalizedType = String(unitType || '').toLowerCase()
   if (normalizedType === 'claim') {
-    return '#ffb454'
+    return '#FEBB2A'
   }
   if (normalizedType === 'method') {
     return '#5fd6c7'
@@ -19,11 +20,32 @@ function unitColor(unitType) {
   return '#7ab8ff'
 }
 
+function compareUnitType(left, right) {
+  const leftType = String(left || 'concept').toLowerCase()
+  const rightType = String(right || 'concept').toLowerCase()
+  const leftIndex = UNIT_TYPE_LAYOUT_ORDER.indexOf(leftType)
+  const rightIndex = UNIT_TYPE_LAYOUT_ORDER.indexOf(rightType)
+  const leftRank = leftIndex === -1 ? UNIT_TYPE_LAYOUT_ORDER.length : leftIndex
+  const rightRank = rightIndex === -1 ? UNIT_TYPE_LAYOUT_ORDER.length : rightIndex
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank
+  }
+  return leftType.localeCompare(rightType)
+}
+
 function estimateEdgeLabelWidth(text, compact = false) {
   if (compact) {
     return 22
   }
   return Math.max(30, String(text || '').length * 7 + 18)
+}
+
+function formatNodeLabel(text) {
+  const label = String(text || '').trim()
+  if (label.length <= 22) {
+    return label
+  }
+  return `${label.slice(0, 21)}...`
 }
 
 function buildEdgeLabelLayouts(from, to, relations, nodeRadius = 32) {
@@ -254,13 +276,26 @@ function KnowledgeGraphLayout({
   const paperOptions = [...paperMap.values()].sort((left, right) => String(left.title || '').localeCompare(String(right.title || '')))
   const sessionOptions = [...sessionMap.values()].sort((left, right) => left.id - right.id)
   const backgroundRect = backgroundRectFromViewBox(viewBox)
+  const unitTypeLanes = [...new Set(units.map((unit) => unit.unit_type || 'concept'))].sort(compareUnitType)
+  const laneLabels =
+    focusNeighborsOnly && selectedUnit
+      ? [
+          { key: 'selected', x: 260, label: '当前节点' },
+          { key: 'first-hop', x: 580, label: '一跳关联' },
+          ...(expansionDepth >= 2 ? [{ key: 'second-hop', x: 860, label: '二跳关联' }] : [])
+        ]
+      : unitTypeLanes.map((unitType, index) => ({
+          key: unitType,
+          x: 88 + ((CANVAS_WIDTH - 176) / unitTypeLanes.length) * index + (CANVAS_WIDTH - 176) / unitTypeLanes.length / 2,
+          label: unitType
+        }))
   const activeFilterLabels = [
     selectedPaperId !== 'all' ? `论文: ${paperMap.get(selectedPaperId)?.title || selectedPaperId}` : null,
     selectedSessionId !== 'all'
       ? `Session: ${sessionMap.get(Number(selectedSessionId))?.name || selectedSessionId}`
       : null,
     selectedUnitType !== 'all' ? `类型: ${selectedUnitType}` : null,
-    focusNeighborsOnly ? `${expansionDepth} 跳聚焦` : null,
+    focusNeighborsOnly ? `${expansionDepth} 跳焦点阅读` : null,
     sortMode !== 'centrality'
       ? `排序: ${sortMode === 'notes' ? '笔记频次' : '名称'}`
       : null
@@ -270,7 +305,7 @@ function KnowledgeGraphLayout({
     <main className="library-page knowledge-page">
       <section className="library-title-row">
         <h1 className="library-title">知识图谱</h1>
-        <p className="library-subtitle">一个 knowledge unit 就是一个节点，支持筛选、邻居聚焦、拖拽，以及从节点直接回跳到笔记和论文 Session。</p>
+        <p className="library-subtitle">一个 knowledge unit 就是一个节点，支持分组阅读、焦点展开、拖拽，以及从节点直接回跳到笔记和论文 Session。</p>
       </section>
 
       <section className="knowledge-workspace">
@@ -350,7 +385,7 @@ function KnowledgeGraphLayout({
                   checked={focusNeighborsOnly}
                   onChange={(event) => onFocusNeighborsToggle(event.target.checked)}
                 />
-                <span>只看一跳邻居</span>
+                <span>焦点阅读</span>
               </label>
               <select
                 className="floating-create-input notes-select knowledge-filter-select"
@@ -403,17 +438,20 @@ function KnowledgeGraphLayout({
                   fill="transparent"
                   onClick={handleCanvasClick}
                 />
+                {laneLabels.map((lane) => (
+                  <text key={lane.key} className="knowledge-lane-label" x={lane.x} y={42} textAnchor="middle">
+                    {lane.label}
+                  </text>
+                ))}
                 {edges.map((edge) => {
                   const from = positions[edge.from_unit_id]
                   const to = positions[edge.to_unit_id]
                   if (!from || !to) {
                     return null
                   }
-                  const active =
-                    selectedUnit &&
-                    (edge.from_unit_id === selectedUnit.id || edge.to_unit_id === selectedUnit.id)
-                  const anchorPoint = selectedUnit?.id === edge.to_unit_id ? to : from
-                  const targetPoint = selectedUnit?.id === edge.to_unit_id ? from : to
+                  const active = selectedUnit && edge.from_unit_id === selectedUnit.id
+                  const anchorPoint = from
+                  const targetPoint = to
                   const labelLayouts =
                     active && selectedUnit
                       ? buildEdgeLabelLayouts(anchorPoint, targetPoint, edge.relations || [edge.relation])
@@ -463,11 +501,12 @@ function KnowledgeGraphLayout({
                       <circle
                         cx={point.x}
                         cy={point.y}
-                        r={active ? 32 : nearby ? 28 : 24}
+                        r={active ? 24 : nearby ? 20 : 20}
                         fill={unitColor(unit.unit_type)}
                       />
-                      <text x={point.x} y={point.y - 38} textAnchor="middle">
-                        {unit.term}
+                      <title>{unit.term}</title>
+                      <text x={point.x} y={point.y - 28} textAnchor="middle">
+                        {formatNodeLabel(unit.term)}
                       </text>
                     </g>
                   )
@@ -504,9 +543,9 @@ function KnowledgeGraphLayout({
               </section>
 
               <section className="knowledge-detail-section">
-                <h3>相邻单元</h3>
+                <h3>向外关联单元</h3>
                 {neighboringUnits.length === 0 ? (
-                  <div className="project-empty">暂无相邻单元</div>
+                  <div className="project-empty">暂无向外关联单元</div>
                 ) : (
                   <div className="knowledge-neighbor-list">
                     {neighboringUnits.map((unit) => (

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import FolderTree from '../components/FolderTree'
 import MarkdownContent from '../components/MarkdownContent'
 import { fetchPaperSessions } from '../services/api'
@@ -11,6 +11,11 @@ const USER_STATE_LABELS = {
   understood: '基本理解',
   misaligned: '理解偏差'
 }
+
+const NOTES_LIST_DEFAULT_WIDTH = 400
+const NOTES_LIST_MIN_WIDTH = 220
+const NOTES_PREVIEW_MIN_WIDTH = 360
+const NOTES_RESIZE_HANDLE_WIDTH = 8
 
 function NotesLayout({
   loading,
@@ -55,6 +60,9 @@ function NotesLayout({
   const [renamingNoteId, setRenamingNoteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [renameLoading, setRenameLoading] = useState(false)
+  const [notesListWidth, setNotesListWidth] = useState(NOTES_LIST_DEFAULT_WIDTH)
+  const [isResizingNotes, setIsResizingNotes] = useState(false)
+  const notesMainPanelRef = useRef(null)
   const paperTitleMap = useMemo(() => {
     return new Map((papers || []).map((paper) => [String(paper.id), paper.title || '未命名论文']))
   }, [papers])
@@ -93,6 +101,41 @@ function NotesLayout({
     }
     return availableSessions
   }, [availableSessions, draftPaperId])
+
+  useEffect(() => {
+    if (!isResizingNotes) {
+      return undefined
+    }
+
+    function resizeNotesPanels(event) {
+      const panel = notesMainPanelRef.current
+      if (!panel) {
+        return
+      }
+
+      const rect = panel.getBoundingClientRect()
+      const maxWidth = Math.max(
+        NOTES_LIST_MIN_WIDTH,
+        rect.width - NOTES_PREVIEW_MIN_WIDTH - NOTES_RESIZE_HANDLE_WIDTH
+      )
+      const nextWidth = Math.min(Math.max(event.clientX - rect.left, NOTES_LIST_MIN_WIDTH), maxWidth)
+      setNotesListWidth(nextWidth)
+    }
+
+    function stopResizingNotes() {
+      setIsResizingNotes(false)
+    }
+
+    document.body.classList.add('notes-panel-resizing')
+    window.addEventListener('mousemove', resizeNotesPanels)
+    window.addEventListener('mouseup', stopResizingNotes)
+
+    return () => {
+      document.body.classList.remove('notes-panel-resizing')
+      window.removeEventListener('mousemove', resizeNotesPanels)
+      window.removeEventListener('mouseup', stopResizingNotes)
+    }
+  }, [isResizingNotes])
 
   async function onSaveDraft() {
     if (!selectedNote || saveLoading) {
@@ -257,7 +300,11 @@ function NotesLayout({
             onRenameFolder={onRenameFolder}
           />
 
-          <section className="notes-main-panel">
+          <section
+            className={`notes-main-panel ${isResizingNotes ? 'resizing' : ''}`}
+            ref={notesMainPanelRef}
+            style={{ '--notes-list-width': `${notesListWidth}px` }}
+          >
           <div className="notes-list-panel">
             <div className="notes-list-header">
               <span>当前目录：{selectedFolderName || '根目录'}</span>
@@ -272,8 +319,14 @@ function NotesLayout({
                 <div
                   key={note.id}
                   className={`note-list-item ${selectedNote?.id === note.id ? 'active' : ''}`}
-                  draggable
-                  onDragStart={(event) => onNoteDragStart(event, note.id)}
+                  draggable={renamingNoteId !== note.id}
+                  onDragStart={(event) => {
+                    if (renamingNoteId === note.id) {
+                      event.preventDefault()
+                      return
+                    }
+                    onNoteDragStart(event, note.id)
+                  }}
                 >
                   {renamingNoteId === note.id ? (
                     <input
@@ -314,14 +367,6 @@ function NotesLayout({
                       {getNoteSummary(note) ? <div className="note-list-summary">{getNoteSummary(note)}</div> : null}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="session-delete-icon"
-                    title="重命名"
-                    onClick={() => startRename(note)}
-                  >
-                    ✎
-                  </button>
                   <button type="button" className="session-delete-icon" onClick={() => onDeleteNote(note)}>
                     ×
                   </button>
@@ -329,6 +374,17 @@ function NotesLayout({
               ))}
             </div>
           </div>
+
+          <div
+            className="notes-panel-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整笔记列表和预览区域宽度"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              setIsResizingNotes(true)
+            }}
+          />
 
           <div className="notes-editor-panel">
             {!selectedNote ? (
