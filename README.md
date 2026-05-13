@@ -343,10 +343,3 @@ cd frontend
 npm install
 npm run dev
 ```
-
-## 项目 TODO List
-
-- [x]  添加对话 session 模块
-- [x]  考虑如何插入思路引导
-- [x]  笔记卡片生成设计
-- [ ]  知识图谱生成的机制设计
