@@ -17,6 +17,10 @@ const CHAT_BOTTOM_THRESHOLD = 40
 const NOTE_GENERATION_POLL_INTERVAL_MS = 3000
 const NOTE_GENERATION_MAX_POLLS = 60
 
+function isComposingText(event) {
+  return Boolean(event.isComposing || event.nativeEvent?.isComposing || event.nativeEvent?.keyCode === 229)
+}
+
 function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [rightWidth, setRightWidth] = useState(380)
@@ -585,6 +589,10 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
   }
 
   function onComposerKeyDown(event) {
+    if (isComposingText(event)) {
+      return
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       onAsk()
