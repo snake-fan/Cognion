@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 
 from .model_adapter import OpenAIModelAdapter
-from .implementations.orchestrators import ConversationOrchestrator, NotesOrchestrator
+from .implementations.orchestrators.conversation import ConversationOrchestrator
+from .implementations.orchestrators.notes import NotesOrchestrator
 
 
 class AgentOrchestrator:
