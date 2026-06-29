@@ -19,6 +19,10 @@ class QAAgent(BaseAgent):
             pdf_filename=str(state.retrieval_context.get("pdf_filename") or ""),
             pdf_context=state.pdf_context,
             pdf_file_url=state.pdf_file_url,
+            conversation_history=state.conversation_history,
+            cognitive_context_brief=state.retrieval_context.get("cognitive_context_brief")
+            if isinstance(state.retrieval_context.get("cognitive_context_brief"), dict)
+            else None,
         )
         return build_messages(build_qa_system_template(), prompt)
 

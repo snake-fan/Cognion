@@ -10,6 +10,8 @@ from .schemas import (
     CanonicalDecision,
     CanonicalDecisionsPayload,
     CanonicalizationAction,
+    CognitiveContextBrief,
+    CognitiveContextBriefPayload,
     CognitiveState,
     DedupeHints,
     ExtractedUnit,
@@ -243,6 +245,47 @@ def parse_qa(raw_text: str) -> ParseResult:
     return ParseResult(ok=True, data=answer, extracted_text=raw_text)
 
 
+def parse_cognitive_context_brief(raw_text: str) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if not deserialize_result.ok:
+        return ParseResult(
+            ok=True,
+            data=CognitiveContextBrief(),
+            extracted_text=json_text,
+            fallback_used=True,
+            error=deserialize_result.error,
+        )
+
+    payload = deserialize_result.data if isinstance(deserialize_result.data, dict) else {}
+    raw_brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else payload
+
+    try:
+        validated = CognitiveContextBriefPayload(
+            brief=CognitiveContextBrief(
+                answer_strategy=_to_clean_text(raw_brief.get("answer_strategy")),
+                relevant_mental_models=_to_string_list(raw_brief.get("relevant_mental_models"))[:5],
+                misunderstandings_to_correct=_to_string_list(raw_brief.get("misunderstandings_to_correct"))[:5],
+                knowledge_to_connect=_to_string_list(raw_brief.get("knowledge_to_connect"))[:5],
+                follow_up_questions=_to_string_list(raw_brief.get("follow_up_questions"))[:3],
+                source_refs=_to_string_list(raw_brief.get("source_refs"))[:8],
+            )
+        )
+    except ValidationError as exc:
+        return ParseResult(
+            ok=False,
+            data=CognitiveContextBrief(),
+            extracted_text=json_text,
+            error=ParseError(
+                code="cognitive_context_brief_schema_error",
+                message="cognitive context brief schema validation failed",
+                details={"errors": exc.errors()},
+            ),
+        )
+
+    return ParseResult(ok=True, data=validated.brief, extracted_text=json_text)
+
+
 def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNote | None:
     raw_summary = _to_clean_text(item.get("summary"))
     raw_content = _to_clean_text(item.get("content"))
@@ -280,6 +323,7 @@ def normalize_structured_note(item: dict[str, Any], index: int) -> StructuredNot
         dedupe_hints=DedupeHints(
             aliases=_to_string_list(dedupe_hints.get("aliases")),
             semantic_fingerprint=_to_string_list(dedupe_hints.get("semantic_fingerprint"))[:6],
+            retrieval_description=_to_clean_text(dedupe_hints.get("retrieval_description")),
         ),
     )
     note.content = content or render_structured_note_markdown(note)

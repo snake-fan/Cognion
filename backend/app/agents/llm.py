@@ -19,6 +19,8 @@ async def answer_with_context(
     local_pdf_path: str | None = None,
     paper_id: str | None = None,
     session_id: str | None = None,
+    conversation_history: list[dict[str, str]] | None = None,
+    cognitive_context_candidates: list[dict[str, object]] | None = None,
 ) -> str:
     return await _orchestrator.answer_qa(
         question=question,
@@ -28,6 +30,8 @@ async def answer_with_context(
         local_pdf_path=local_pdf_path,
         paper_id=paper_id,
         session_id=session_id,
+        conversation_history=conversation_history,
+        cognitive_context_candidates=cognitive_context_candidates,
     )
 
 
@@ -39,6 +43,8 @@ async def answer_with_context_stream(
     local_pdf_path: str | None = None,
     paper_id: str | None = None,
     session_id: str | None = None,
+    conversation_history: list[dict[str, str]] | None = None,
+    cognitive_context_candidates: list[dict[str, object]] | None = None,
 ) -> AsyncGenerator[str, None]:
     async for token in _orchestrator.answer_qa_stream(
         question=question,
@@ -48,6 +54,8 @@ async def answer_with_context_stream(
         local_pdf_path=local_pdf_path,
         paper_id=paper_id,
         session_id=session_id,
+        conversation_history=conversation_history,
+        cognitive_context_candidates=cognitive_context_candidates,
     ):
         yield token
 

@@ -1,0 +1,3 @@
+# Use a separate cognitive context selection step before conversation answers
+
+Paper-bound Conversation Answers first receive recent Conversation History for local continuity, then run Cognitive Context Selection over durable notes and knowledge units to produce a compact Cognitive Context Brief. We use a staged flow: note generation creates a Retrieval Description that acts like an index card, candidate collection scans those descriptions before expanding matched note details, and a separate selection agent decides which expanded fragments are decision-impacting enough to shape the answer. Selection failures degrade to an empty brief so basic paper QA remains available.

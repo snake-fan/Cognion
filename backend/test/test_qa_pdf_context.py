@@ -39,6 +39,35 @@ class QAPdfTemplateTests(unittest.TestCase):
         self.assertEqual(messages[1].content[1]["type"], "input_file")
         self.assertEqual(messages[1].content[1]["file_url"], "https://example.test/paper.pdf")
 
+    def test_qa_agent_includes_conversation_history_and_cognitive_context_brief(self):
+        state = ConversationAgentState(
+            user_input="How should I understand V?",
+            pdf_context="Attention context",
+            conversation_history=[
+                {"role": "user", "content": "I thought QK should multiply K.", "quote": ""},
+                {"role": "assistant", "content": "QK creates weights.", "quote": ""},
+            ],
+            retrieval_context={
+                "quote": "attention quote",
+                "pdf_filename": "paper.pdf",
+                "cognitive_context_brief": {
+                    "answer_strategy": "优先纠偏，再连接到 V 的作用。",
+                    "relevant_mental_models": ["用户已经知道 QK 决定权重。"],
+                    "misunderstandings_to_correct": ["不要把权重应用到 K。"],
+                    "knowledge_to_connect": ["scaled-dot-product-attention"],
+                    "follow_up_questions": [],
+                    "source_refs": ["note:1"],
+                },
+            },
+        )
+        messages = QAAgent(adapter=object()).build_messages(state)
+
+        self.assertIn("Conversation History", messages[1].content)
+        self.assertIn("I thought QK should multiply K.", messages[1].content)
+        self.assertIn("Cognitive Context Brief", messages[1].content)
+        self.assertIn("优先纠偏", messages[1].content)
+        self.assertIn("不要把 brief 当作论文证据", messages[1].content)
+
 
 class QAPdfContextServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_mineru_uploads_pdf_url_without_calling_mineru(self):

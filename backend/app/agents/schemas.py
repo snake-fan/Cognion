@@ -130,9 +130,23 @@ class CognitiveState(BaseModel):
     mental_model: str = ""
 
 
+class CognitiveContextBrief(BaseModel):
+    answer_strategy: str = ""
+    relevant_mental_models: list[str] = Field(default_factory=list)
+    misunderstandings_to_correct: list[str] = Field(default_factory=list)
+    knowledge_to_connect: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
+
+
+class CognitiveContextBriefPayload(BaseModel):
+    brief: CognitiveContextBrief = Field(default_factory=CognitiveContextBrief)
+
+
 class DedupeHints(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     semantic_fingerprint: list[str] = Field(default_factory=list)
+    retrieval_description: str = ""
 
 
 class UnitRelationCandidate(BaseModel):

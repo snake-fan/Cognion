@@ -7,8 +7,9 @@ from ....services.mineru import extract_pdf_context_for_qa
 from ....services.pdf_storage import extract_pdf_text
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
 from ...parsers import parse_metadata
-from ...schemas import ModelCallParams, model_message_content_to_text
+from ...schemas import CognitiveContextBrief, ModelCallParams, model_message_content_to_text
 from ...state import ConversationAgentState, build_messages
+from ..agents.cognitive_context_agent import CognitiveContextAgent
 from ..agents.qa_agent import QAAgent
 from ..templates.metadata import build_metadata_system_template, build_metadata_user_template
 from ..templates.fallback import build_fallback_message
@@ -18,6 +19,7 @@ from .base import BaseOrchestrator
 class ConversationOrchestrator(BaseOrchestrator):
     def __init__(self, adapter: OpenAIModelAdapter | None = None) -> None:
         super().__init__(adapter)
+        self.register_agent(CognitiveContextAgent(self.adapter))
         self.register_agent(QAAgent(self.adapter))
 
     async def extract_metadata(self, pdf_bytes: bytes, pdf_filename: str | None) -> dict[str, str]:
@@ -63,6 +65,8 @@ class ConversationOrchestrator(BaseOrchestrator):
         trace_id: str | None = None,
         paper_id: str | None = None,
         session_id: str | None = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        cognitive_context_candidates: list[dict[str, object]] | None = None,
     ) -> str:
         state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
@@ -70,8 +74,14 @@ class ConversationOrchestrator(BaseOrchestrator):
             paper_id=paper_id,
             session_id=session_id,
             user_input=question,
-            retrieval_context={"quote": quote, "pdf_filename": pdf_filename},
+            conversation_history=conversation_history or [],
+            retrieval_context={
+                "quote": quote,
+                "pdf_filename": pdf_filename,
+                "cognitive_context_candidates": cognitive_context_candidates or [],
+            },
         )
+        await self._select_cognitive_context(state)
         pdf_context = await extract_pdf_context_for_qa(
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
@@ -99,6 +109,8 @@ class ConversationOrchestrator(BaseOrchestrator):
         trace_id: str | None = None,
         paper_id: str | None = None,
         session_id: str | None = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        cognitive_context_candidates: list[dict[str, object]] | None = None,
     ) -> AsyncGenerator[str, None]:
         state = ConversationAgentState(
             trace_id=trace_id or uuid4().hex,
@@ -106,8 +118,14 @@ class ConversationOrchestrator(BaseOrchestrator):
             paper_id=paper_id,
             session_id=session_id,
             user_input=question,
-            retrieval_context={"quote": quote, "pdf_filename": pdf_filename},
+            conversation_history=conversation_history or [],
+            retrieval_context={
+                "quote": quote,
+                "pdf_filename": pdf_filename,
+                "cognitive_context_candidates": cognitive_context_candidates or [],
+            },
         )
+        await self._select_cognitive_context(state)
         pdf_context = await extract_pdf_context_for_qa(
             pdf_bytes=pdf_bytes,
             pdf_filename=pdf_filename,
@@ -124,3 +142,19 @@ class ConversationOrchestrator(BaseOrchestrator):
             prompt_message = qa_agent.build_messages(state)[1]
             prompt = model_message_content_to_text(prompt_message.content)
             yield build_fallback_message(prompt)
+
+    async def _select_cognitive_context(self, state: ConversationAgentState) -> None:
+        empty_brief = CognitiveContextBrief().model_dump(mode="json")
+        candidates = state.retrieval_context.get("cognitive_context_candidates")
+        if not isinstance(candidates, list) or not candidates:
+            state.retrieval_context["cognitive_context_brief"] = empty_brief
+            return
+
+        try:
+            await self.get_agent("cognitive_context_agent").run(state)
+        except Exception:
+            state.retrieval_context["cognitive_context_brief"] = empty_brief
+            return
+
+        if not isinstance(state.retrieval_context.get("cognitive_context_brief"), dict):
+            state.retrieval_context["cognitive_context_brief"] = empty_brief
