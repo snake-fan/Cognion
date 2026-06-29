@@ -89,6 +89,7 @@ def build_session_notes_user_template(
 必须是对象，包含：
 - aliases: 该知识点可能的别名数组
 - semantic_fingerprint: 3~6 个短语，用来表达这条知识点的语义特征，便于去重
+- retrieval_description: 1~2 句话，写给系统检索使用，说明未来用户问到什么问题、暴露什么误解、使用什么表达时，应召回这条 note。它不是 summary，不要复述正文；要像 skill description 一样说明适用场景。
 
 8. content
 - 必须是完整 markdown 笔记正文
@@ -135,7 +136,8 @@ def build_session_notes_user_template(
       "follow_up_questions": [],
       "dedupe_hints": {{
         "aliases": [],
-        "semantic_fingerprint": []
+        "semantic_fingerprint": [],
+        "retrieval_description": "当用户询问某术语的作用、混淆它和相近概念，或表现出某种认知边界时，应召回这条 note。"
       }},
       "content": "# 术语-结论\\n\\n## 核心命题\\n...\\n\\n## 用户当前模型\\n...\\n\\n## 依据与边界\\n...\\n\\n## 关键区分\\n...\\n\\n## 可连接问题\\n- ..."
     }}

@@ -1,6 +1,7 @@
 import unittest
 
 from backend.app.agents.parsers import (
+    parse_cognitive_context_brief,
     parse_canonical_decisions,
     parse_extracted_units,
     parse_relation_decisions,
@@ -24,7 +25,11 @@ class SessionNotesParserTests(unittest.TestCase):
                 "mental_model": "用户把 attention 理解成一种帮助模型关注重点信息的机制，但还说不清权重如何形成。"
               },
               "follow_up_questions": ["权重是如何算出来的？"],
-              "dedupe_hints": {"aliases": ["注意力机制"], "semantic_fingerprint": ["focus", "weights", "tokens"]},
+              "dedupe_hints": {
+                "aliases": ["注意力机制"],
+                "semantic_fingerprint": ["focus", "weights", "tokens"],
+                "retrieval_description": "当用户询问 attention 的作用或权重机制时，应召回这条 note。"
+              },
               "content": "# Attention-用户对作用有部分理解\\n\\n## 用户当前是怎么理解这个问题的\\n用户觉得 attention 的作用是关注重要词。\\n\\n## 分析与推进\\n这个理解抓住了用途，但还停留在功能层，缺少对权重如何形成的机制性认识。\\n\\n## 后续可以继续追问\\n- 权重是如何算出来的？"
             }
           ]
@@ -36,8 +41,38 @@ class SessionNotesParserTests(unittest.TestCase):
         self.assertEqual(parsed.data[0].note_id, "temp_001")
         self.assertIn("用户当前是怎么理解这个问题的", parsed.data[0].content)
         self.assertEqual(parsed.data[0].cognitive_state.mental_model[:2], "用户")
+        self.assertIn("权重机制", parsed.data[0].dedupe_hints.retrieval_description)
         self.assertNotIn("关键证据", parsed.data[0].content)
         self.assertNotIn("evidence", parsed.data[0].model_dump(mode="json"))
+
+    def test_parse_cognitive_context_brief(self):
+        raw = """
+        {
+          "brief": {
+            "answer_strategy": "先纠正用户把 QK 后乘 K 的误解，再解释 V 承载被聚合内容。",
+            "relevant_mental_models": ["用户认为 Q/K 用来决定看哪里。"],
+            "misunderstandings_to_correct": ["不要把 attention 权重应用到 K 上。"],
+            "knowledge_to_connect": ["scaled-dot-product-attention"],
+            "follow_up_questions": ["为什么 attention 输出不能直接预测 token？"],
+            "source_refs": ["note:1", "knowledge_unit:101"],
+            "evidence": ["extra field should be ignored"]
+          }
+        }
+        """
+        parsed = parse_cognitive_context_brief(raw)
+
+        self.assertTrue(parsed.ok)
+        self.assertEqual(parsed.data.answer_strategy[:2], "先纠")
+        self.assertEqual(parsed.data.source_refs, ["note:1", "knowledge_unit:101"])
+        self.assertNotIn("evidence", parsed.data.model_dump(mode="json"))
+
+    def test_parse_cognitive_context_brief_falls_back_to_empty_brief(self):
+        parsed = parse_cognitive_context_brief("not json")
+
+        self.assertTrue(parsed.ok)
+        self.assertTrue(parsed.fallback_used)
+        self.assertEqual(parsed.data.answer_strategy, "")
+        self.assertEqual(parsed.data.source_refs, [])
 
     def test_parse_extracted_units(self):
         raw = """

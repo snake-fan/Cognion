@@ -27,6 +27,8 @@ class AgentOrchestrator:
         trace_id: str | None = None,
         paper_id: str | None = None,
         session_id: str | None = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        cognitive_context_candidates: list[dict[str, object]] | None = None,
     ) -> str:
         return await self.conversation.answer_qa(
             question=question,
@@ -37,6 +39,8 @@ class AgentOrchestrator:
             trace_id=trace_id,
             paper_id=paper_id,
             session_id=session_id,
+            conversation_history=conversation_history,
+            cognitive_context_candidates=cognitive_context_candidates,
         )
 
     async def answer_qa_stream(
@@ -50,6 +54,8 @@ class AgentOrchestrator:
         trace_id: str | None = None,
         paper_id: str | None = None,
         session_id: str | None = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        cognitive_context_candidates: list[dict[str, object]] | None = None,
     ) -> AsyncGenerator[str, None]:
         async for token in self.conversation.answer_qa_stream(
             question=question,
@@ -60,6 +66,8 @@ class AgentOrchestrator:
             trace_id=trace_id,
             paper_id=paper_id,
             session_id=session_id,
+            conversation_history=conversation_history,
+            cognitive_context_candidates=cognitive_context_candidates,
         ):
             yield token
 

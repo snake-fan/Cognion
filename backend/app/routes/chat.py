@@ -7,9 +7,70 @@ from sqlalchemy.orm import Session
 
 from ..db import ChatMessage, ChatSession, Paper, get_db
 from ..services import answer_with_context, answer_with_context_stream
+from ..services.cognitive_context import collect_cognitive_context_candidates
 from .common import ensure_default_session
 
 router = APIRouter()
+
+
+def _message_size(message: ChatMessage) -> int:
+    return len(message.content or "") + len(message.quote or "")
+
+
+def _recent_conversation_history(
+    db: Session,
+    *,
+    paper_id: str,
+    session_id: int | None,
+    limit: int = 12,
+    max_chars: int = 6000,
+) -> list[dict[str, str]]:
+    query = db.query(ChatMessage).filter(ChatMessage.paper_id == paper_id)
+    if session_id is None:
+        query = query.filter(ChatMessage.session_id.is_(None))
+    else:
+        query = query.filter(ChatMessage.session_id == session_id)
+
+    newest_messages = query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(limit).all()
+    selected: list[ChatMessage] = []
+    total_chars = 0
+    for message in newest_messages:
+        message_chars = _message_size(message)
+        if selected and total_chars + message_chars > max_chars:
+            continue
+        selected.append(message)
+        total_chars += message_chars
+
+    return [
+        {
+            "role": message.role,
+            "content": message.content,
+            "quote": message.quote or "",
+        }
+        for message in reversed(selected)
+    ]
+
+
+def _collect_cognitive_context_candidates(
+    db: Session,
+    *,
+    question: str,
+    quote: str,
+    paper_id: str | None,
+    session_id: int | None,
+) -> list[dict[str, object]]:
+    if not paper_id:
+        return []
+    try:
+        return collect_cognitive_context_candidates(
+            db,
+            question=question,
+            quote=quote,
+            paper_id=paper_id,
+            session_id=session_id,
+        )
+    except Exception:
+        return []
 
 
 @router.post("/ask", response_model=None)
@@ -43,6 +104,19 @@ async def ask_about_quote(
     pdf_bytes = await pdf_file.read() if pdf_file else None
     effective_pdf_filename = pdf_file.filename if pdf_file else (paper.original_filename if paper else None)
     effective_pdf_path = paper.file_path if paper else None
+    effective_session_id = chat_session.id if chat_session else None
+    conversation_history = (
+        _recent_conversation_history(db, paper_id=paper_id, session_id=effective_session_id)
+        if paper_id is not None
+        else []
+    )
+    cognitive_context_candidates = _collect_cognitive_context_candidates(
+        db,
+        question=question,
+        quote=quote,
+        paper_id=paper_id,
+        session_id=effective_session_id,
+    )
 
     def persist_chat_turn(answer_text: str) -> None:
         if paper_id is None:
@@ -82,7 +156,9 @@ async def ask_about_quote(
                     pdf_filename=effective_pdf_filename,
                     local_pdf_path=effective_pdf_path,
                     paper_id=paper_id,
-                    session_id=str(chat_session.id) if chat_session else None,
+                    session_id=str(effective_session_id) if effective_session_id is not None else None,
+                    conversation_history=conversation_history,
+                    cognitive_context_candidates=cognitive_context_candidates,
                 ):
                     if not delta:
                         continue
@@ -109,7 +185,9 @@ async def ask_about_quote(
         pdf_filename=effective_pdf_filename,
         local_pdf_path=effective_pdf_path,
         paper_id=paper_id,
-        session_id=str(chat_session.id) if chat_session else None,
+        session_id=str(effective_session_id) if effective_session_id is not None else None,
+        conversation_history=conversation_history,
+        cognitive_context_candidates=cognitive_context_candidates,
     )
 
     persist_chat_turn(response_text)
