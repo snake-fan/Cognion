@@ -255,22 +255,37 @@ function KnowledgeGraphLayout({
       return
     }
     event.preventDefault()
-    const point = pointerToSvg(event)
-    if (!point) {
-      return
-    }
-    const zoomFactor = event.deltaY > 0 ? 1.12 : 0.9
-    const nextWidth = Math.max(MIN_VIEWBOX_WIDTH, Math.min(MAX_VIEWBOX_WIDTH, viewBox.width * zoomFactor))
-    const nextHeight = (nextWidth / CANVAS_WIDTH) * CANVAS_HEIGHT
-    const ratioX = (point.x - viewBox.x) / viewBox.width
-    const ratioY = (point.y - viewBox.y) / viewBox.height
 
-    setViewBox({
-      x: point.x - ratioX * nextWidth,
-      y: point.y - ratioY * nextHeight,
-      width: nextWidth,
-      height: nextHeight
-    })
+    // macOS trackpad pinch-to-zoom: browser sets ctrlKey = true
+    // Two-finger pan / mouse wheel: ctrlKey = false
+    if (event.ctrlKey) {
+      const point = pointerToSvg(event)
+      if (!point) {
+        return
+      }
+      const zoomFactor = event.deltaY > 0 ? 1.12 : 0.9
+      const nextWidth = Math.max(MIN_VIEWBOX_WIDTH, Math.min(MAX_VIEWBOX_WIDTH, viewBox.width * zoomFactor))
+      const nextHeight = (nextWidth / CANVAS_WIDTH) * CANVAS_HEIGHT
+      const ratioX = (point.x - viewBox.x) / viewBox.width
+      const ratioY = (point.y - viewBox.y) / viewBox.height
+
+      setViewBox({
+        x: point.x - ratioX * nextWidth,
+        y: point.y - ratioY * nextHeight,
+        width: nextWidth,
+        height: nextHeight
+      })
+    } else {
+      // Two-finger pan on trackpad or regular mouse scroll -> pan the canvas
+      const rect = svgRef.current.getBoundingClientRect()
+      const scaleX = viewBox.width / rect.width
+      const scaleY = viewBox.height / rect.height
+      setViewBox((prev) => ({
+        ...prev,
+        x: prev.x + event.deltaX * scaleX,
+        y: prev.y + event.deltaY * scaleY
+      }))
+    }
   }
 
   const paperOptions = [...paperMap.values()].sort((left, right) => String(left.title || '').localeCompare(String(right.title || '')))
