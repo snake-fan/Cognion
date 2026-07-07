@@ -33,6 +33,7 @@ export async function askWithQuote({ question, quote, pdfFile, paperId, sessionI
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
   let fullAnswer = ''
+  let donePayload = null
 
   function handleEventBlock(block) {
     const lines = block.split('\n')
@@ -78,6 +79,7 @@ export async function askWithQuote({ question, quote, pdfFile, paperId, sessionI
     }
 
     if (eventName === 'done') {
+      donePayload = payload
       if (typeof payload.answer === 'string') {
         fullAnswer = payload.answer
         if (typeof onChunk === 'function') {
@@ -114,7 +116,7 @@ export async function askWithQuote({ question, quote, pdfFile, paperId, sessionI
     handleEventBlock(buffer)
   }
 
-  return { answer: fullAnswer }
+  return { answer: fullAnswer, session: donePayload?.session || null }
 }
 
 export async function fetchPapers(folderId = null, { includeAll = false } = {}) {

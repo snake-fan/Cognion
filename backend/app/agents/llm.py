@@ -35,6 +35,25 @@ async def answer_with_context(
     )
 
 
+async def generate_session_name(
+    *,
+    question: str,
+    quote: str,
+    paper_title: str,
+    paper_topic: str,
+    paper_id: str | None = None,
+    session_id: str | None = None,
+) -> str:
+    return await _orchestrator.generate_session_name(
+        question=question,
+        quote=quote,
+        paper_title=paper_title,
+        paper_topic=paper_topic,
+        paper_id=paper_id,
+        session_id=session_id,
+    )
+
+
 async def answer_with_context_stream(
     question: str,
     quote: str,

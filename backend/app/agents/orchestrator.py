@@ -43,6 +43,27 @@ class AgentOrchestrator:
             cognitive_context_candidates=cognitive_context_candidates,
         )
 
+    async def generate_session_name(
+        self,
+        *,
+        question: str,
+        quote: str,
+        paper_title: str,
+        paper_topic: str,
+        trace_id: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
+        return await self.conversation.generate_session_name(
+            question=question,
+            quote=quote,
+            paper_title=paper_title,
+            paper_topic=paper_topic,
+            trace_id=trace_id,
+            paper_id=paper_id,
+            session_id=session_id,
+        )
+
     async def answer_qa_stream(
         self,
         *,

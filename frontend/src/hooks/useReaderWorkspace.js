@@ -314,6 +314,27 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
     }
   }
 
+  function mergeUpdatedSession(updatedSession) {
+    if (!updatedSession?.id) {
+      return
+    }
+
+    setSessions((prev) => {
+      let found = false
+      const next = prev.map((session) => {
+        if (session.id !== updatedSession.id) {
+          return session
+        }
+        found = true
+        return {
+          ...session,
+          ...updatedSession
+        }
+      })
+      return found ? next : [updatedSession, ...prev]
+    })
+  }
+
   async function openUploadedPaper(file, paperId, preferredSessionId = null) {
     setActiveProjectId(paperId)
     clearReaderState({ clearPdf: false })
@@ -415,6 +436,7 @@ function useReaderWorkspace({ activeProjectId, setActiveProjectId }) {
           return [...next, { role: 'assistant', content: result.answer }]
         })
       }
+      mergeUpdatedSession(result?.session)
     } catch (error) {
       setMessages((prev) => {
         const next = [...prev]

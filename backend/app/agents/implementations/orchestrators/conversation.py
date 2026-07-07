@@ -6,13 +6,14 @@ from uuid import uuid4
 from ....services.mineru import extract_pdf_context_for_qa
 from ....services.pdf_storage import extract_pdf_text
 from ...model_adapter import ModelAdapterError, OpenAIModelAdapter
-from ...parsers import parse_metadata
+from ...parsers import parse_metadata, parse_session_name
 from ...schemas import CognitiveContextBrief, ModelCallParams, model_message_content_to_text
 from ...state import ConversationAgentState, build_messages
 from ..agents.cognitive_context_agent import CognitiveContextAgent
 from ..agents.qa_agent import QAAgent
 from ..templates.metadata import build_metadata_system_template, build_metadata_user_template
 from ..templates.fallback import build_fallback_message
+from ..templates.session_name import build_session_name_system_template, build_session_name_user_template
 from .base import BaseOrchestrator
 
 
@@ -53,6 +54,45 @@ class ConversationOrchestrator(BaseOrchestrator):
             "publication_date": "未知",
             "summary": "",
         }
+
+    async def generate_session_name(
+        self,
+        *,
+        question: str,
+        quote: str,
+        paper_title: str,
+        paper_topic: str,
+        trace_id: str | None = None,
+        paper_id: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
+        prompt = build_session_name_user_template(
+            question=question,
+            quote=quote,
+            paper_title=paper_title,
+            paper_topic=paper_topic,
+        )
+        messages = build_messages(build_session_name_system_template(), prompt)
+
+        try:
+            result = await self.adapter.call(
+                trace_id=trace_id or uuid4().hex,
+                workflow="conversation",
+                paper_id=paper_id,
+                session_id=session_id,
+                agent_name="session_name_agent",
+                messages=messages,
+                params=ModelCallParams(
+                    temperature=0.1,
+                    response_format={"type": "json_object"},
+                    timeout_seconds=20.0,
+                    max_tokens=80,
+                ),
+            )
+            parsed = parse_session_name(result.text)
+            return parsed.data if parsed.ok and isinstance(parsed.data, str) else ""
+        except Exception:
+            return ""
 
     async def answer_qa(
         self,

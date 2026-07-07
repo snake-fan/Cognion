@@ -99,6 +99,45 @@ def _to_clean_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _clean_session_name(value: object, *, max_chars: int = 40) -> str:
+    text = _to_clean_text(value)
+    text = re.sub(r"^\s*(session\s*)?name\s*[:：]\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip(" \t\r\n`'\"“”‘’.,，。:：;；-—")
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip()
+    return text
+
+
+def parse_session_name(raw_text: str) -> ParseResult:
+    json_text = extract_json_text(raw_text)
+    deserialize_result = deserialize_json(json_text)
+    if deserialize_result.ok:
+        payload = deserialize_result.data
+        if isinstance(payload, dict):
+            candidate = _clean_session_name(payload.get("name"))
+        else:
+            candidate = _clean_session_name(payload)
+        if candidate:
+            return ParseResult(ok=True, data=candidate, extracted_text=json_text)
+
+    candidate = _clean_session_name(raw_text)
+    if candidate:
+        return ParseResult(
+            ok=True,
+            data=candidate,
+            extracted_text=json_text,
+            fallback_used=True,
+            error=deserialize_result.error,
+        )
+
+    return ParseResult(
+        ok=False,
+        extracted_text=json_text,
+        error=ParseError(code="empty_session_name", message="Session name is empty"),
+    )
+
+
 def _normalize_topic_key(value: str) -> str:
     normalized = re.sub(r"\s+", " ", (value or "").strip().lower())
     normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "-", normalized)

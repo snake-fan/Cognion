@@ -16,6 +16,7 @@ __all__ = [
     "answer_with_context",
     "answer_with_context_stream",
     "extract_paper_metadata",
+    "generate_session_name",
     "generate_notes_from_session",
     "call_mineru_api_with_pdf_url",
     "upload_pdf_to_aliyun_oss",
@@ -33,6 +34,7 @@ def __getattr__(name):
         "answer_with_context",
         "answer_with_context_stream",
         "extract_paper_metadata",
+        "generate_session_name",
         "generate_notes_from_session",
     }:
         from ..agents import llm
