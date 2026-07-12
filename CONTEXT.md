@@ -4,6 +4,22 @@ Cognion turns paper-reading conversations into durable cognitive traces that can
 
 ## Language
 
+**User**:
+A person with a Cognion identity who exclusively owns their papers, folders, conversations, notes, and knowledge graph. A User is identified by a verified email address.
+_Avoid_: Account, profile
+
+**Email Verification**:
+Proof that a User controls the email address associated with their Cognion identity. Registration does not establish an active identity until Email Verification succeeds.
+_Avoid_: Login code, passwordless login
+
+**User Space**:
+The private collection of papers, folders, conversations, notes, and knowledge graph belonging exclusively to one **User**. Cognion has no shared or cross-user resources.
+_Avoid_: Workspace, tenant, shared library
+
+**User Metadata**:
+The editable profile associated one-to-one with a **User**, consisting of their display name, avatar, locale, and timezone. It excludes identity credentials and verification state.
+_Avoid_: User, account, authentication data
+
 **Cognitive Context**:
 A concise set of prior knowledge, notes, and user-understanding signals that should materially influence the next answer. It is not a raw dump of all related notes or graph nodes.
 _Avoid_: Retrieval results, search hits, memory dump
@@ -65,3 +81,15 @@ Domain Expert: "No. They are Conversation History. Cognitive Context Selection s
 Developer: "Should retrieval scan full note content first?"
 
 Domain Expert: "No. It should first scan each note's Retrieval Description, then expand details only for matched notes."
+
+Developer: "Can a newly registered User sign in before confirming their email?"
+
+Domain Expert: "No. Registration creates an unverified identity; Email Verification must succeed before that User can sign in and access owned Cognion data."
+
+Developer: "Can one User open a paper or note owned by another User if they know its identifier?"
+
+Domain Expert: "No. Every resource belongs to exactly one User Space, and resources are never visible across User Spaces."
+
+Developer: "Does changing a display name change the User's login identity?"
+
+Domain Expert: "No. Display name belongs to User Metadata; identity credentials and Email Verification belong to the User."
