@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..db import ChatMessage, ChatSession, Folder, Paper, get_db
+from ..db import ChatMessage, ChatSession, Folder, KnowledgeGraphEdge, KnowledgeUnit, Note, Paper, get_db
+from ..auth.context import set_current_user_id
 from ..services import extract_paper_metadata, move_pdf_file_to_segments, persist_uploaded_pdf
 from .common import (
     build_folder_tree,
@@ -27,6 +28,7 @@ async def upload_paper(
     folder_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, dict[str, str | int]]:
+    set_current_user_id(str(db.info["user_id"]))
     filename = pdf_file.filename or "paper.pdf"
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -40,7 +42,13 @@ async def upload_paper(
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
 
-    file_path = persist_uploaded_pdf(pdf_bytes, filename, folder_segments=folder_segments(db, folder_id))
+    user_id = str(db.info["user_id"])
+    file_path = persist_uploaded_pdf(
+        pdf_bytes,
+        filename,
+        user_id,
+        folder_segments=folder_segments(db, folder_id),
+    )
     metadata = await extract_paper_metadata(pdf_bytes, filename)
 
     paper = Paper(
@@ -202,7 +210,11 @@ def move_paper(
             raise HTTPException(status_code=404, detail="Target folder not found")
 
     paper.folder_id = target_folder_id
-    paper.file_path = move_pdf_file_to_segments(paper.file_path, folder_segments(db, target_folder_id))
+    paper.file_path = move_pdf_file_to_segments(
+        paper.file_path,
+        str(db.info["user_id"]),
+        folder_segments(db, target_folder_id),
+    )
     paper.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(paper)
@@ -219,6 +231,15 @@ def delete_paper(paper_id: str, db: Session = Depends(get_db)) -> dict[str, int]
     if target_path.exists():
         target_path.unlink(missing_ok=True)
 
+    db.query(Note).filter(Note.paper_id == paper_id).update(
+        {"paper_id": None, "session_id": None}, synchronize_session=False
+    )
+    db.query(KnowledgeUnit).filter(KnowledgeUnit.paper_id == paper_id).update(
+        {"paper_id": None}, synchronize_session=False
+    )
+    db.query(KnowledgeGraphEdge).filter(KnowledgeGraphEdge.paper_id == paper_id).update(
+        {"paper_id": None}, synchronize_session=False
+    )
     db.query(ChatMessage).filter(ChatMessage.paper_id == paper_id).delete(synchronize_session=False)
     db.query(Paper).filter(Paper.id == paper_id).delete(synchronize_session=False)
     db.commit()
@@ -247,6 +268,15 @@ def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, in
             if target_path.exists():
                 target_path.unlink(missing_ok=True)
 
+        db.query(Note).filter(Note.paper_id.in_(delete_paper_ids)).update(
+            {"paper_id": None, "session_id": None}, synchronize_session=False
+        )
+        db.query(KnowledgeUnit).filter(KnowledgeUnit.paper_id.in_(delete_paper_ids)).update(
+            {"paper_id": None}, synchronize_session=False
+        )
+        db.query(KnowledgeGraphEdge).filter(KnowledgeGraphEdge.paper_id.in_(delete_paper_ids)).update(
+            {"paper_id": None}, synchronize_session=False
+        )
         db.query(ChatMessage).filter(ChatMessage.paper_id.in_(delete_paper_ids)).delete(synchronize_session=False)
         db.query(Paper).filter(Paper.id.in_(delete_paper_ids)).delete(synchronize_session=False)
 
@@ -374,6 +404,7 @@ def delete_paper_session(
     if not chat_session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    db.query(Note).filter(Note.session_id == session_id).update({"session_id": None}, synchronize_session=False)
     db.query(ChatMessage).filter(ChatMessage.session_id == session_id).delete(synchronize_session=False)
     db.query(ChatSession).filter(ChatSession.id == session_id).delete(synchronize_session=False)
     db.commit()

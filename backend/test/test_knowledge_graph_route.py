@@ -3,7 +3,7 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.app.db.models import Base, ChatSession, KnowledgeGraphEdge, KnowledgeUnit, KnowledgeUnitNoteLink, Note, Paper
+from backend.app.db.models import Base, ChatSession, KnowledgeGraphEdge, KnowledgeUnit, KnowledgeUnitNoteLink, Note, Paper, User
 from backend.app.routes.knowledge_graph import get_knowledge_graph
 
 
@@ -13,6 +13,9 @@ class KnowledgeGraphRouteTests(unittest.TestCase):
         self.TestingSession = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, future=True)
         Base.metadata.create_all(bind=self.engine)
         self.db = self.TestingSession()
+        self.db.add(User(id="test-user", email="test@example.com", password_hash="unused"))
+        self.db.commit()
+        self.db.info["user_id"] = "test-user"
 
         paper = Paper(
             id="paper-1",

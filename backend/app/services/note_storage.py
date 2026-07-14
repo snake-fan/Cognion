@@ -14,9 +14,10 @@ def _safe_segment(name: str) -> str:
 def persist_note_markdown(
     title: str,
     content: str,
+    user_id: str,
     folder_segments: list[str] | None = None,
 ) -> str:
-    storage_dir = Path(NOTE_STORAGE_DIR)
+    storage_dir = Path(NOTE_STORAGE_DIR).parent / "users" / _safe_segment(user_id) / "notes"
     if folder_segments:
         for segment in folder_segments:
             storage_dir = storage_dir / _safe_segment(segment)
@@ -36,12 +37,16 @@ def overwrite_note_markdown(file_path: str, content: str) -> str:
     return str(target_path.resolve())
 
 
-def move_note_file_to_segments(existing_file_path: str, folder_segments: list[str] | None = None) -> str:
+def move_note_file_to_segments(
+    existing_file_path: str,
+    user_id: str,
+    folder_segments: list[str] | None = None,
+) -> str:
     source_path = Path(existing_file_path)
     if not source_path.exists():
         return existing_file_path
 
-    target_dir = Path(NOTE_STORAGE_DIR)
+    target_dir = Path(NOTE_STORAGE_DIR).parent / "users" / _safe_segment(user_id) / "notes"
     if folder_segments:
         for segment in folder_segments:
             target_dir = target_dir / _safe_segment(segment)

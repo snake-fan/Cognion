@@ -1,11 +1,13 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import cognionLogo from './assets/cognion_logo_dark.png'
 import SidebarNav from './components/SidebarNav'
+import AccountPanel from './components/AccountPanel'
+import AuthPage from './components/AuthPage'
 import useLibraryData from './hooks/useLibraryData'
 import useKnowledgeGraphData from './hooks/useKnowledgeGraphData'
 import useNotesData from './hooks/useNotesData'
 import useReaderWorkspace from './hooks/useReaderWorkspace'
-import { uploadPaper } from './services/api'
+import { logoutUser, refreshSession, uploadPaper } from './services/api'
 
 const PRIMARY_NAV_ITEMS = [
   { key: 'library', label: '文献库', enabled: true },
@@ -48,7 +50,7 @@ const KnowledgeGraphLayout = lazy(() => import('./layout/KnowledgeGraphLayout'))
 const WorkspaceLayout = lazy(() => import('./layout/WorkspaceLayout'))
 const ReaderWorkspace = lazy(() => import('./layout/ReaderWorkspace'))
 
-function App() {
+function AuthenticatedApp({ user, onOpenAccount }) {
   const [viewMode, setViewMode] = useState('home')
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [focusedSessionNoteId, setFocusedSessionNoteId] = useState(null)
@@ -249,15 +251,20 @@ function App() {
   const primaryLevel = viewMode
 
   const leftSidebar = (
-    <SidebarNav
-      collapsed={leftCollapsed}
-      onToggleCollapsed={setLeftCollapsed}
-      logoSrc={cognionLogo}
-      items={PRIMARY_NAV_ITEMS}
-      icons={NAV_ICONS}
-      activeKey={primaryLevel}
-      onItemClick={onPrimaryNavClick}
-    />
+    <>
+      <SidebarNav
+        collapsed={leftCollapsed}
+        onToggleCollapsed={setLeftCollapsed}
+        logoSrc={cognionLogo}
+        items={PRIMARY_NAV_ITEMS}
+        icons={NAV_ICONS}
+        activeKey={primaryLevel}
+        onItemClick={onPrimaryNavClick}
+      />
+      <button className="account-trigger" onClick={onOpenAccount} title="账户设置">
+        {(user.metadata?.display_name || user.email).slice(0, 1).toUpperCase()}
+      </button>
+    </>
   )
 
   async function onOpenProject(projectId) {
@@ -481,6 +488,68 @@ function App() {
         onAsk={onAsk}
       />
     </Suspense>
+  )
+}
+
+function App() {
+  const [authStatus, setAuthStatus] = useState('loading')
+  const [user, setUser] = useState(null)
+  const [accountOpen, setAccountOpen] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    refreshSession()
+      .then((restoredUser) => {
+        if (active) setUser(restoredUser)
+      })
+      .catch(() => {
+        if (active) setUser(null)
+      })
+      .finally(() => {
+        if (active) setAuthStatus('ready')
+      })
+
+    function expireSession() {
+      setUser(null)
+      setAccountOpen(false)
+      setAuthStatus('ready')
+    }
+    window.addEventListener('cognion:auth-expired', expireSession)
+    return () => {
+      active = false
+      window.removeEventListener('cognion:auth-expired', expireSession)
+    }
+  }, [])
+
+  async function signOut() {
+    try {
+      await logoutUser()
+    } finally {
+      setUser(null)
+      setAccountOpen(false)
+    }
+  }
+
+  if (authStatus === 'loading') {
+    return <div className="auth-shell"><div className="empty-state">正在恢复会话…</div></div>
+  }
+
+  if (!user) {
+    return <AuthPage onAuthenticated={setUser} />
+  }
+
+  return (
+    <>
+      <AuthenticatedApp user={user} onOpenAccount={() => setAccountOpen(true)} />
+      {accountOpen && (
+        <AccountPanel
+          user={user}
+          onClose={() => setAccountOpen(false)}
+          onUserChange={setUser}
+          onSignedOut={signOut}
+        />
+      )}
+    </>
   )
 }
 

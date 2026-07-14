@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..db import ChatMessage, ChatSession, Paper, get_db
+from ..auth.context import set_current_user_id
 from ..services import answer_with_context, answer_with_context_stream, generate_session_name
 from ..services.cognitive_context import collect_cognitive_context_candidates
 from .common import ensure_default_session, session_to_dict
@@ -138,6 +139,7 @@ async def ask_about_quote(
     pdf_file: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ):
+    set_current_user_id(str(db.info["user_id"]))
     paper: Paper | None = None
     chat_session: ChatSession | None = None
     if paper_id is not None:

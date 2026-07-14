@@ -1,5 +1,6 @@
 from .startup import init_database
 from .models import (
+    AuthRateLimit,
     ChatMessage,
     ChatSession,
     Folder,
@@ -9,6 +10,11 @@ from .models import (
     Note,
     NoteFolder,
     Paper,
+    OneTimeToken,
+    RefreshSession,
+    User,
+    UserMetadata,
+    UserOwnedMixin,
 )
 from .session import Base, SessionLocal, engine, get_db
 
@@ -19,6 +25,12 @@ __all__ = [
     "get_db",
     "init_database",
     "Paper",
+    "User",
+    "UserMetadata",
+    "RefreshSession",
+    "OneTimeToken",
+    "AuthRateLimit",
+    "UserOwnedMixin",
     "Folder",
     "ChatMessage",
     "ChatSession",

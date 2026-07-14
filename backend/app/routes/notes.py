@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException
 from sqlalchemy.orm import Session
 
 from ..db import ChatMessage, ChatSession, KnowledgeUnit, Note, NoteFolder, Paper, SessionLocal, get_db
+from ..auth.context import set_current_user_id
 from ..services import (
     apply_graph_patch,
     generate_notes_from_session,
@@ -27,7 +28,7 @@ from .common import (
 )
 
 router = APIRouter()
-_NOTE_GENERATION_JOBS: set[tuple[str, int]] = set()
+_NOTE_GENERATION_JOBS: set[tuple[str, str, int]] = set()
 
 
 async def _generate_and_persist_session_notes(
@@ -37,8 +38,11 @@ async def _generate_and_persist_session_notes(
     folder_id: int | None,
     max_points: int | None,
     trace_id: str,
+    user_id: str,
 ) -> dict[str, object]:
     db = SessionLocal()
+    db.info["user_id"] = user_id
+    set_current_user_id(user_id)
     try:
         paper = db.query(Paper).filter(Paper.id == paper_id).first()
         if not paper:
@@ -135,7 +139,12 @@ async def _generate_and_persist_session_notes(
                 continue
 
             try:
-                file_path = persist_note_markdown(title, content, note_folder_segments(db, folder_id))
+                file_path = persist_note_markdown(
+                    title,
+                    content,
+                    user_id,
+                    note_folder_segments(db, folder_id),
+                )
                 note = Note(
                     note_id=note_id or "",
                     title=title,
@@ -187,7 +196,7 @@ async def _generate_and_persist_session_notes(
         return {"created_notes": [], "skipped_topics": [{"reason": "generation_failed"}]}
     finally:
         db.close()
-        _NOTE_GENERATION_JOBS.discard((paper_id, session_id))
+        _NOTE_GENERATION_JOBS.discard((user_id, paper_id, session_id))
 
 
 @router.get("/papers/{paper_id}/sessions/{session_id}/notes")
@@ -238,7 +247,8 @@ async def generate_notes_for_session(
     if not chat_session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    job_key = (paper_id, session_id)
+    user_id = str(db.info["user_id"])
+    job_key = (user_id, paper_id, session_id)
     if job_key in _NOTE_GENERATION_JOBS:
         return {
             "paper_id": paper_id,
@@ -271,6 +281,7 @@ async def generate_notes_for_session(
         folder_id=folder_id,
         max_points=max_points,
         trace_id=trace_id,
+        user_id=user_id,
     )
 
     return {
@@ -287,11 +298,12 @@ async def generate_notes_for_session(
 def get_note_generation_status(
     paper_id: str,
     session_id: int,
+    db: Session = Depends(get_db),
 ) -> dict[str, object]:
     return {
         "paper_id": paper_id,
         "session_id": session_id,
-        "running": (paper_id, session_id) in _NOTE_GENERATION_JOBS,
+        "running": (str(db.info["user_id"]), paper_id, session_id) in _NOTE_GENERATION_JOBS,
     }
 
 
@@ -446,7 +458,12 @@ def create_note(
         if paper is None:
             paper_id = session.paper_id
 
-    file_path = persist_note_markdown(note_title, content, note_folder_segments(db, folder_id))
+    file_path = persist_note_markdown(
+        note_title,
+        content,
+        str(db.info["user_id"]),
+        note_folder_segments(db, folder_id),
+    )
 
     note = Note(
         note_id="",
@@ -556,7 +573,11 @@ def move_note(
             raise HTTPException(status_code=404, detail="Target folder not found")
 
     note.folder_id = target_folder_id
-    note.file_path = move_note_file_to_segments(note.file_path, note_folder_segments(db, target_folder_id))
+    note.file_path = move_note_file_to_segments(
+        note.file_path,
+        str(db.info["user_id"]),
+        note_folder_segments(db, target_folder_id),
+    )
     note.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(note)

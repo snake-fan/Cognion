@@ -4,6 +4,7 @@ import asyncio
 import os
 import time
 import threading
+from contextvars import copy_context
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -13,6 +14,7 @@ import httpx
 from openai import APITimeoutError, AsyncOpenAI, RateLimitError
 
 from .schemas import LLMInvocationLog, ModelCallParams, ModelInvocationResult, ModelMessage, TokenUsage
+from ..auth.context import get_current_user_id
 
 
 class InvocationLogSink(ABC):
@@ -22,8 +24,10 @@ class InvocationLogSink(ABC):
 
 
 class TraceJsonInvocationLogSink(InvocationLogSink):
-    def __init__(self, directory_path: Path) -> None:
+    def __init__(self, directory_path: Path, retention_days: int | None = None) -> None:
         self._directory_path = directory_path
+        self._retention_days = retention_days
+        self._last_cleanup_day: int | None = None
         self._directory_path.mkdir(parents=True, exist_ok=True)
 
     def _safe_segment(self, value: str | None, fallback: str) -> str:
@@ -36,8 +40,25 @@ class TraceJsonInvocationLogSink(InvocationLogSink):
         workflow = self._safe_segment(log.workflow, "workflow-unknown")
         paper_dir = f"paper-{self._safe_segment(log.paper_id, 'unknown')}"
         session_dir = f"session-{self._safe_segment(log.session_id, 'unknown')}"
-        directory_path = self._directory_path / workflow / paper_dir / session_dir
+        user_id = get_current_user_id()
+        base_path = (
+            self._directory_path.parent / "users" / self._safe_segment(user_id, "unknown") / "llm_invocations"
+            if user_id
+            else self._directory_path
+        )
+        directory_path = base_path / workflow / paper_dir / session_dir
         directory_path.mkdir(parents=True, exist_ok=True)
+
+        day = int(time.time() // 86400)
+        if self._retention_days is not None and self._last_cleanup_day != day:
+            cutoff = time.time() - max(self._retention_days, 0) * 86400
+            for candidate in base_path.rglob("*.json"):
+                try:
+                    if candidate.stat().st_mtime < cutoff:
+                        candidate.unlink()
+                except OSError:
+                    continue
+            self._last_cleanup_day = day
 
         file_path = directory_path / f"{timestamp}-{trace_id}.json"
         with file_path.open("w", encoding="utf-8") as file:
@@ -55,6 +76,23 @@ class CompositeLogSink(InvocationLogSink):
     def write(self, log: LLMInvocationLog) -> None:
         for sink in self._sinks:
             sink.write(log)
+
+
+class MetadataOnlyLogSink(InvocationLogSink):
+    def __init__(self, sink: InvocationLogSink) -> None:
+        self._sink = sink
+
+    def write(self, log: LLMInvocationLog) -> None:
+        self._sink.write(
+            log.model_copy(
+                update={
+                    "messages": [],
+                    "raw_response": None,
+                    "pre_parse_text": "",
+                    "error": "invocation_failed" if log.error else None,
+                }
+            )
+        )
 
 
 class ModelAdapterError(RuntimeError):
@@ -597,7 +635,8 @@ class OpenAIModelAdapter:
             except BaseException as exc:  # pragma: no cover - defensive bridge for async callers
                 error = exc
 
-        thread = threading.Thread(target=_runner, daemon=True)
+        context = copy_context()
+        thread = threading.Thread(target=lambda: context.run(_runner), daemon=True)
         thread.start()
         # 这里的 join 可以理解为阻塞线程，等待 thread 执行完返回结果
         thread.join()
@@ -610,4 +649,14 @@ class OpenAIModelAdapter:
 
 
 def default_log_sink() -> InvocationLogSink:
-    return TraceJsonInvocationLogSink(Path(__file__).resolve().parents[2] / "storage" / "llm_invocations")
+    from ..services.config import LLM_INVOCATION_LOG_MODE, LLM_INVOCATION_LOG_RETENTION_DAYS
+
+    if LLM_INVOCATION_LOG_MODE == "off":
+        return CompositeLogSink()
+    sink: InvocationLogSink = TraceJsonInvocationLogSink(
+        Path(__file__).resolve().parents[2] / "storage" / "llm_invocations",
+        retention_days=LLM_INVOCATION_LOG_RETENTION_DAYS if LLM_INVOCATION_LOG_MODE == "full" else None,
+    )
+    if LLM_INVOCATION_LOG_MODE == "metadata":
+        return MetadataOnlyLogSink(sink)
+    return sink

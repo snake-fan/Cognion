@@ -147,6 +147,7 @@ Cognion 想做的，就是帮助这个过程发生。
 
 ### 前端
 
+- 支持邮箱验证注册、登录、会话恢复、密码重置与账户设置
 - 文献库支持多层级文件夹树，支持文件夹/论文的创建、重命名、删除与移动
 - 阅读区支持 PDF 渲染、缩放、页码导航、文本选择与引用
 - AI 对话支持流式回复、引用上下文问答、多会话创建/重命名/删除
@@ -155,6 +156,8 @@ Cognion 想做的，就是帮助这个过程发生。
 
 ### 后端
 
+- 使用短期 JWT Access Token 与可轮换 Refresh Session 保护 API
+- 所有论文、文件夹、对话、笔记、知识图谱和本地文件按用户隔离
 - 上传 PDF 后保存文件并入库论文元信息
 - 论文元信息持久化到 PostgreSQL（标题、作者、期刊、摘要等）
 - 论文与目录关系持久化（支持移动后同步文件路径）
@@ -203,6 +206,8 @@ psql -U postgres -h 127.0.0.1 -d cognion_db
 
 > 如使用 macOS / Windows，请按官方安装器安装 PostgreSQL，并保持连接参数与 `.env` 一致。
 
+> 鉴权版本不包含旧数据库迁移。升级时请先备份所需内容，再重建数据库；旧的 `backend/storage` 文件不会自动归属到新用户。
+
 ## .env 配置
 
 后端读取 `backend/.env`（可由 `backend/.env.example` 复制）。
@@ -219,6 +224,19 @@ OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_URL=https://api.openai.com/v1
 
+APP_ENV=development
+FRONTEND_BASE_URL=http://localhost:5555
+CORS_ALLOWED_ORIGINS=http://localhost:5555
+JWT_SECRET=replace-with-at-least-32-random-characters
+
+# 本地可运行 Mailpit 等 SMTP 捕获服务；生产环境必须配置真实 SMTP。
+SMTP_HOST=127.0.0.1
+SMTP_PORT=1025
+SMTP_FROM_EMAIL=no-reply@cognion.local
+
+LLM_INVOCATION_LOG_MODE=full
+LLM_INVOCATION_LOG_RETENTION_DAYS=7
+
 # 二选一：优先使用 DATABASE_URL
 # DATABASE_URL=postgresql+psycopg2://postgres:your_password@127.0.0.1:5432/cognion_db
 
@@ -229,6 +247,7 @@ DATABASE_PORT=5432
 DATABASE_NAME=cognion_db
 
 PDF_STORAGE_DIR=./storage/papers
+NOTE_STORAGE_DIR=./storage/notes
 
 MINERU_ENABLED=false
 MINERU_API_URL=

@@ -1,4 +1,134 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+let accessToken = null
+let refreshPromise = null
+
+export function setAccessToken(token) {
+  accessToken = token || null
+}
+
+async function readError(response) {
+  try {
+    const payload = await response.json()
+    return payload?.detail || `Request failed: ${response.status}`
+  } catch {
+    return `Request failed: ${response.status}`
+  }
+}
+
+async function nativeFetch(path, options = {}) {
+  return window.fetch(path, { credentials: 'include', ...options })
+}
+
+export async function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = nativeFetch(`${API_BASE}/auth/refresh`, { method: 'POST' })
+      .then(async (response) => {
+        if (!response.ok) {
+          setAccessToken(null)
+          throw new Error(await readError(response))
+        }
+        const payload = await response.json()
+        setAccessToken(payload.access_token)
+        return payload.user
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
+}
+
+export async function apiFetch(path, options = {}, retry = true) {
+  const headers = new Headers(options.headers || {})
+  if (accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
+  }
+  const response = await nativeFetch(path, { ...options, headers })
+  if (response.status !== 401 || !retry || String(path).includes('/auth/')) {
+    return response
+  }
+  try {
+    await refreshSession()
+  } catch {
+    window.dispatchEvent(new CustomEvent('cognion:auth-expired'))
+    return response
+  }
+  return apiFetch(path, options, false)
+}
+
+async function authJson(path, body) {
+  const response = await nativeFetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return response.status === 204 ? null : response.json()
+}
+
+export async function registerUser(email, password) {
+  return authJson('/auth/register', { email, password })
+}
+
+export async function verifyEmail(token) {
+  return authJson('/auth/verify-email', { token })
+}
+
+export async function resendVerification(email) {
+  return authJson('/auth/resend-verification', { email })
+}
+
+export async function loginUser(email, password) {
+  const payload = await authJson('/auth/login', { email, password })
+  setAccessToken(payload.access_token)
+  return payload.user
+}
+
+export async function logoutUser() {
+  await nativeFetch(`${API_BASE}/auth/logout`, { method: 'POST' })
+  setAccessToken(null)
+}
+
+export async function forgotPassword(email) {
+  return authJson('/auth/forgot-password', { email })
+}
+
+export async function resetPassword(token, newPassword) {
+  return authJson('/auth/reset-password', { token, new_password: newPassword })
+}
+
+export async function updateUserMetadata(metadata) {
+  const response = await apiFetch(`${API_BASE}/users/me/metadata`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(metadata)
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return response.json()
+}
+
+export async function changeUserPassword(currentPassword, newPassword) {
+  const response = await apiFetch(`${API_BASE}/users/me/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return response.json()
+}
+
+export async function deleteUserAccount(password) {
+  const response = await apiFetch(`${API_BASE}/users/me`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  setAccessToken(null)
+  return response.json()
+}
 
 export async function askWithQuote({ question, quote, pdfFile, paperId, sessionId, onChunk }) {
   const formData = new FormData()
@@ -15,7 +145,7 @@ export async function askWithQuote({ question, quote, pdfFile, paperId, sessionI
     formData.append('pdf_file', pdfFile)
   }
 
-  const response = await fetch(`${API_BASE}/ask`, {
+  const response = await apiFetch(`${API_BASE}/ask`, {
     method: 'POST',
     body: formData
   })
@@ -128,7 +258,7 @@ export async function fetchPapers(folderId = null, { includeAll = false } = {}) 
     search.set('folder_id', String(folderId))
   }
 
-  const response = await fetch(`${API_BASE}/papers${search.toString() ? `?${search.toString()}` : ''}`)
+  const response = await apiFetch(`${API_BASE}/papers${search.toString() ? `?${search.toString()}` : ''}`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -144,7 +274,7 @@ export async function uploadPaper(pdfFile, folderId = null) {
     formData.append('folder_id', String(folderId))
   }
 
-  const response = await fetch(`${API_BASE}/papers/upload`, {
+  const response = await apiFetch(`${API_BASE}/papers/upload`, {
     method: 'POST',
     body: formData
   })
@@ -158,7 +288,7 @@ export async function uploadPaper(pdfFile, folderId = null) {
 }
 
 export async function fetchPaperFile(paperId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}/file`)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/file`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -171,7 +301,7 @@ export async function fetchPaperMessages(paperId, sessionId = null) {
     search.set('session_id', String(sessionId))
   }
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE}/papers/${paperId}/messages${search.toString() ? `?${search.toString()}` : ''}`
   )
   if (!response.ok) {
@@ -182,7 +312,7 @@ export async function fetchPaperMessages(paperId, sessionId = null) {
 }
 
 export async function fetchPaperSessions(paperId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions`)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -200,7 +330,7 @@ export async function createPaperSession(paperId, name = '') {
     requestInit.body = formData
   }
 
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions`, requestInit)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions`, requestInit)
   if (!response.ok) {
     let detail = ''
     try {
@@ -219,7 +349,7 @@ export async function renamePaperSession(paperId, sessionId, name) {
   const formData = new FormData()
   formData.append('name', name)
 
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}`, {
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}`, {
     method: 'PATCH',
     body: formData
   })
@@ -231,7 +361,7 @@ export async function renamePaperSession(paperId, sessionId, name) {
 }
 
 export async function deletePaperSession(paperId, sessionId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}`, {
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}`, {
     method: 'DELETE'
   })
   if (!response.ok) {
@@ -241,7 +371,7 @@ export async function deletePaperSession(paperId, sessionId) {
 }
 
 export async function fetchSessionNotes(paperId, sessionId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes`)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -260,7 +390,7 @@ export async function generateSessionNotes(paperId, sessionId, { folderId = null
 
   const query = search.toString()
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes/generate${query ? `?${query}` : ''}`,
     {
       method: 'POST'
@@ -282,7 +412,7 @@ export async function generateSessionNotes(paperId, sessionId, { folderId = null
 }
 
 export async function fetchSessionNoteGenerationStatus(paperId, sessionId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes/generate/status`)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/sessions/${sessionId}/notes/generate/status`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -290,7 +420,7 @@ export async function fetchSessionNoteGenerationStatus(paperId, sessionId) {
 }
 
 export async function fetchFolderTree() {
-  const response = await fetch(`${API_BASE}/folders/tree`)
+  const response = await apiFetch(`${API_BASE}/folders/tree`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -305,7 +435,7 @@ export async function createFolder(name, parentId = null) {
     formData.append('parent_id', String(parentId))
   }
 
-  const response = await fetch(`${API_BASE}/folders`, {
+  const response = await apiFetch(`${API_BASE}/folders`, {
     method: 'POST',
     body: formData
   })
@@ -317,7 +447,7 @@ export async function createFolder(name, parentId = null) {
 }
 
 export async function deleteFolder(folderId) {
-  const response = await fetch(`${API_BASE}/folders/${folderId}`, {
+  const response = await apiFetch(`${API_BASE}/folders/${folderId}`, {
     method: 'DELETE'
   })
   if (!response.ok) {
@@ -334,7 +464,7 @@ export async function moveFolder(folderId, targetParentId = null) {
     requestInit.body = formData
   }
 
-  const response = await fetch(`${API_BASE}/folders/${folderId}/move`, requestInit)
+  const response = await apiFetch(`${API_BASE}/folders/${folderId}/move`, requestInit)
   if (!response.ok) {
     let detail = ''
     try {
@@ -353,7 +483,7 @@ export async function renameFolder(folderId, name) {
   const formData = new FormData()
   formData.append('name', name)
 
-  const response = await fetch(`${API_BASE}/folders/${folderId}/rename`, {
+  const response = await apiFetch(`${API_BASE}/folders/${folderId}/rename`, {
     method: 'PATCH',
     body: formData
   })
@@ -372,7 +502,7 @@ export async function movePaper(paperId, targetFolderId = null) {
     requestInit.body = formData
   }
 
-  const response = await fetch(`${API_BASE}/papers/${paperId}/move`, requestInit)
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}/move`, requestInit)
   if (!response.ok) {
     let detail = ''
     try {
@@ -388,7 +518,7 @@ export async function movePaper(paperId, targetFolderId = null) {
 }
 
 export async function deletePaper(paperId) {
-  const response = await fetch(`${API_BASE}/papers/${paperId}`, {
+  const response = await apiFetch(`${API_BASE}/papers/${paperId}`, {
     method: 'DELETE'
   })
   if (!response.ok) {
@@ -398,7 +528,7 @@ export async function deletePaper(paperId) {
 }
 
 export async function fetchNoteFolderTree() {
-  const response = await fetch(`${API_BASE}/notes/folders/tree`)
+  const response = await apiFetch(`${API_BASE}/notes/folders/tree`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -413,7 +543,7 @@ export async function createNoteFolder(name, parentId = null) {
     formData.append('parent_id', String(parentId))
   }
 
-  const response = await fetch(`${API_BASE}/notes/folders`, {
+  const response = await apiFetch(`${API_BASE}/notes/folders`, {
     method: 'POST',
     body: formData
   })
@@ -432,7 +562,7 @@ export async function moveNoteFolder(folderId, targetParentId = null) {
     requestInit.body = formData
   }
 
-  const response = await fetch(`${API_BASE}/notes/folders/${folderId}/move`, requestInit)
+  const response = await apiFetch(`${API_BASE}/notes/folders/${folderId}/move`, requestInit)
   if (!response.ok) {
     let detail = ''
     try {
@@ -451,7 +581,7 @@ export async function renameNoteFolder(folderId, name) {
   const formData = new FormData()
   formData.append('name', name)
 
-  const response = await fetch(`${API_BASE}/notes/folders/${folderId}/rename`, {
+  const response = await apiFetch(`${API_BASE}/notes/folders/${folderId}/rename`, {
     method: 'PATCH',
     body: formData
   })
@@ -463,7 +593,7 @@ export async function renameNoteFolder(folderId, name) {
 }
 
 export async function deleteNoteFolder(folderId) {
-  const response = await fetch(`${API_BASE}/notes/folders/${folderId}`, {
+  const response = await apiFetch(`${API_BASE}/notes/folders/${folderId}`, {
     method: 'DELETE'
   })
   if (!response.ok) {
@@ -478,7 +608,7 @@ export async function fetchNotes(folderId = null) {
     search.set('folder_id', String(folderId))
   }
 
-  const response = await fetch(`${API_BASE}/notes${search.toString() ? `?${search.toString()}` : ''}`)
+  const response = await apiFetch(`${API_BASE}/notes${search.toString() ? `?${search.toString()}` : ''}`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -488,7 +618,7 @@ export async function fetchNotes(folderId = null) {
 }
 
 export async function fetchKnowledgeGraph() {
-  const response = await fetch(`${API_BASE}/knowledge-graph`)
+  const response = await apiFetch(`${API_BASE}/knowledge-graph`)
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
@@ -510,7 +640,7 @@ export async function createNote({ title, content = '', folderId = null, paperId
     formData.append('session_id', String(sessionId))
   }
 
-  const response = await fetch(`${API_BASE}/notes`, {
+  const response = await apiFetch(`${API_BASE}/notes`, {
     method: 'POST',
     body: formData
   })
@@ -544,7 +674,7 @@ export async function updateNote(noteId, { title, content, paperId, sessionId })
     formData.append('session_id', String(sessionId === null ? 0 : sessionId))
   }
 
-  const response = await fetch(`${API_BASE}/notes/${noteId}`, {
+  const response = await apiFetch(`${API_BASE}/notes/${noteId}`, {
     method: 'PATCH',
     body: formData
   })
@@ -571,7 +701,7 @@ export async function moveNote(noteId, targetFolderId = null) {
     requestInit.body = formData
   }
 
-  const response = await fetch(`${API_BASE}/notes/${noteId}/move`, requestInit)
+  const response = await apiFetch(`${API_BASE}/notes/${noteId}/move`, requestInit)
   if (!response.ok) {
     let detail = ''
     try {
@@ -587,7 +717,7 @@ export async function moveNote(noteId, targetFolderId = null) {
 }
 
 export async function deleteNote(noteId) {
-  const response = await fetch(`${API_BASE}/notes/${noteId}`, {
+  const response = await apiFetch(`${API_BASE}/notes/${noteId}`, {
     method: 'DELETE'
   })
   if (!response.ok) {

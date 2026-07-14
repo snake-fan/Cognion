@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.app.db.models import Base, ChatMessage, ChatSession, Paper
+from backend.app.db.models import Base, ChatMessage, ChatSession, Paper, User
 from backend.app.routes.chat import ask_about_quote
 
 
@@ -15,6 +15,9 @@ class ChatSessionNameTests(unittest.IsolatedAsyncioTestCase):
         TestingSession = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, future=True)
         Base.metadata.create_all(bind=self.engine)
         self.db = TestingSession()
+        self.db.add(User(id="test-user", email="test@example.com", password_hash="unused"))
+        self.db.commit()
+        self.db.info["user_id"] = "test-user"
         self.db.add(
             Paper(
                 id="paper-1",
