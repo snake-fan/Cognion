@@ -160,20 +160,27 @@ function useNotesData({ activePaperId, activeSessionId }) {
   }
 
   async function onCreateNote() {
-    const fallbackPaperId = activePaperId ?? null
-    const fallbackSessionId = activeSessionId ?? null
-    const created = await createNote({
-      title: `笔记 ${new Date().toLocaleString()}`,
-      content: '# 新笔记\n\n',
-      folderId: selectedFolderId,
-      paperId: fallbackPaperId,
-      sessionId: fallbackSessionId
-    })
+    try {
+      const fallbackPaperId = activePaperId ?? null
+      const fallbackSessionId = activeSessionId ?? null
+      const created = await createNote({
+        title: `笔记 ${new Date().toLocaleString()}`,
+        content: '# 新笔记\n\n',
+        folderId: selectedFolderId,
+        paperId: fallbackPaperId,
+        sessionId: fallbackSessionId
+      })
 
-    await refreshNotes(selectedFolderId)
-    await refreshFolders()
-    await refreshPapers()
-    setSelectedNoteId(created.id)
+      setNotes((prev) => [created, ...prev.filter((note) => note.id !== created.id)])
+      setSelectedNoteId(created.id)
+      await Promise.all([refreshNotes(selectedFolderId), refreshFolders(), refreshPapers()])
+      setSelectedNoteId(created.id)
+      return created
+    } catch (error) {
+      console.error(error)
+      window.alert(`新建笔记失败：${error.message}`)
+      throw error
+    }
   }
 
   async function onSaveNote(noteId, payload) {

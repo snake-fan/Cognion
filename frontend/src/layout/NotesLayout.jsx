@@ -60,6 +60,7 @@ function NotesLayout({
   const [renamingNoteId, setRenamingNoteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [renameLoading, setRenameLoading] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
   const [notesListWidth, setNotesListWidth] = useState(NOTES_LIST_DEFAULT_WIDTH)
   const [isResizingNotes, setIsResizingNotes] = useState(false)
   const notesMainPanelRef = useRef(null)
@@ -202,11 +203,30 @@ function NotesLayout({
     return USER_STATE_LABELS[state] || ''
   }
 
+  async function createAndEditNote() {
+    if (createLoading) {
+      return
+    }
+    try {
+      setCreateLoading(true)
+      await onCreateNote()
+      setEditMode(true)
+    } catch {
+      // The data hook already reports the error.
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
   return (
     <main className="library-page notes-page">
       <section className="library-title-row">
-        <h1 className="library-title">笔记</h1>
-        <p className="library-subtitle">每条笔记可绑定 paper 与 session，用于后续快速跳转。</p>
+        <div>
+          <span className="library-eyebrow">KNOWLEDGE NOTES</span>
+          <h1 className="library-title">笔记</h1>
+          <p className="library-subtitle">把阅读中的理解、问题与灵感沉淀下来。</p>
+        </div>
+        <div className="library-count"><strong>{notes.length}</strong><span>条笔记</span></div>
       </section>
 
       {editMode && selectedNote ? (
@@ -308,8 +328,8 @@ function NotesLayout({
           <div className="notes-list-panel">
             <div className="notes-list-header">
               <span>当前目录：{selectedFolderName || '根目录'}</span>
-              <button type="button" className="floating-create-btn primary" onClick={onCreateNote}>
-                新建笔记
+              <button type="button" className="floating-create-btn primary" onClick={createAndEditNote} disabled={createLoading}>
+                {createLoading ? '创建中...' : '新建笔记'}
               </button>
             </div>
             {loading ? <div className="library-loading">正在加载笔记...</div> : null}

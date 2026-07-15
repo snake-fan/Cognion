@@ -12,9 +12,11 @@ function SidebarNav({
       <div className="sidebar-header">
         <button className="logo-button" onClick={() => onToggleCollapsed((value) => !value)}>
           <img className="logo-image" src={logoSrc} alt="Cognion" />
+          {!collapsed ? <span className="sidebar-brand-name">Cognion</span> : null}
         </button>
       </div>
       <div className="sidebar-content">
+        {!collapsed ? <span className="sidebar-section-label">工作空间</span> : null}
         {items.map((item) => (
           <button
             key={item.key}

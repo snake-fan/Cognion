@@ -189,7 +189,7 @@ function FolderTree({
       onDrop={onRootDrop}
     >
       <div className="folder-tree-header">
-        <span>文件夹（点击空白处回到根目录）</span>
+        <div><strong>资料目录</strong><span>拖拽即可整理</span></div>
         <button
           type="button"
           className="folder-root-create-btn"

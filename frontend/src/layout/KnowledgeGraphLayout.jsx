@@ -319,8 +319,12 @@ function KnowledgeGraphLayout({
   return (
     <main className="library-page knowledge-page">
       <section className="library-title-row">
-        <h1 className="library-title">知识图谱</h1>
-        <p className="library-subtitle">一个 knowledge unit 就是一个节点，支持分组阅读、焦点展开、拖拽，以及从节点直接回跳到笔记和论文 Session。</p>
+        <div>
+          <span className="library-eyebrow">CONNECTED KNOWLEDGE</span>
+          <h1 className="library-title">知识图谱</h1>
+          <p className="library-subtitle">看见知识之间的联系，也看见自己的理解如何生长。</p>
+        </div>
+        <div className="library-count"><strong>{units.length}</strong><span>个知识单元</span></div>
       </section>
 
       <section className="knowledge-workspace">

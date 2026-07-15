@@ -3,6 +3,7 @@ import cognionLogo from './assets/cognion_logo_dark.png'
 import SidebarNav from './components/SidebarNav'
 import AccountPanel from './components/AccountPanel'
 import AuthPage from './components/AuthPage'
+import LandingPage from './components/LandingPage'
 import useLibraryData from './hooks/useLibraryData'
 import useKnowledgeGraphData from './hooks/useKnowledgeGraphData'
 import useNotesData from './hooks/useNotesData'
@@ -43,7 +44,6 @@ const NAV_ICONS = {
   )
 }
 
-const HomeLayout = lazy(() => import('./layout/HomeLayout'))
 const LibraryLayout = lazy(() => import('./layout/LibraryLayout'))
 const NotesLayout = lazy(() => import('./layout/NotesLayout'))
 const KnowledgeGraphLayout = lazy(() => import('./layout/KnowledgeGraphLayout'))
@@ -51,7 +51,7 @@ const WorkspaceLayout = lazy(() => import('./layout/WorkspaceLayout'))
 const ReaderWorkspace = lazy(() => import('./layout/ReaderWorkspace'))
 
 function AuthenticatedApp({ user, onOpenAccount }) {
-  const [viewMode, setViewMode] = useState('home')
+  const [viewMode, setViewMode] = useState('library')
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [focusedSessionNoteId, setFocusedSessionNoteId] = useState(null)
 
@@ -282,14 +282,6 @@ function AuthenticatedApp({ user, onOpenAccount }) {
     }
   }
 
-  if (viewMode === 'home') {
-    return (
-      <Suspense fallback={<div className="empty-state">加载中...</div>}>
-        <HomeLayout onEnterLibrary={() => setViewMode('library')} />
-      </Suspense>
-    )
-  }
-
   if (viewMode === 'library') {
     return (
       <Suspense fallback={<div className="empty-state">加载中...</div>}>
@@ -492,9 +484,21 @@ function AuthenticatedApp({ user, onOpenAccount }) {
 }
 
 function App() {
+  const authAction = new URLSearchParams(window.location.search).has('action')
+  const [publicPage, setPublicPage] = useState(
+    window.location.pathname === '/login' || authAction ? 'auth' : 'landing'
+  )
   const [authStatus, setAuthStatus] = useState('loading')
   const [user, setUser] = useState(null)
   const [accountOpen, setAccountOpen] = useState(false)
+
+  useEffect(() => {
+    function syncPublicPage() {
+      setPublicPage(window.location.pathname === '/login' ? 'auth' : 'landing')
+    }
+    window.addEventListener('popstate', syncPublicPage)
+    return () => window.removeEventListener('popstate', syncPublicPage)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -527,7 +531,19 @@ function App() {
     } finally {
       setUser(null)
       setAccountOpen(false)
+      setPublicPage('landing')
+      window.history.replaceState({}, '', '/')
     }
+  }
+
+  function openAuth() {
+    setPublicPage('auth')
+    window.history.pushState({}, '', '/login')
+  }
+
+  function enterWorkspace(authenticatedUser) {
+    setUser(authenticatedUser)
+    window.history.replaceState({}, '', '/')
   }
 
   if (authStatus === 'loading') {
@@ -535,7 +551,10 @@ function App() {
   }
 
   if (!user) {
-    return <AuthPage onAuthenticated={setUser} />
+    if (publicPage === 'landing') {
+      return <LandingPage onGetStarted={openAuth} />
+    }
+    return <AuthPage onAuthenticated={enterWorkspace} />
   }
 
   return (

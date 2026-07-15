@@ -25,20 +25,29 @@ function ProjectCard({ project, onOpen, onDragStart, onDelete }) {
   const updatedAt = project.updated_at || project.updatedAt
 
   return (
-    <button
-      type="button"
+    <article
       className="project-card"
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(project.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen(project.id)
+        }
+      }}
       draggable
       onDragStart={(event) => onDragStart(event, project.id)}
     >
+      <div className="project-card-topline">
+        <span className="project-file-icon"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6" /></svg></span>
+        <span className="project-topic">{topic}</span>
+      </div>
       <div className="project-card-title">{title}</div>
       <div className="project-card-meta">
         <span>作者：{authors}</span>
-        <span>主题：{topic}</span>
         <span>期刊：{journal}</span>
-        <span>出版日期：{publicationDate}</span>
-        <span>更新时间：{formatProjectTime(updatedAt)}</span>
+        <span>{publicationDate} · 更新于 {formatProjectTime(updatedAt)}</span>
       </div>
       <button
         type="button"
@@ -49,9 +58,9 @@ function ProjectCard({ project, onOpen, onDragStart, onDelete }) {
           onDelete(project)
         }}
       >
-        删除
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13" /></svg>
       </button>
-    </button>
+    </article>
   )
 }
 

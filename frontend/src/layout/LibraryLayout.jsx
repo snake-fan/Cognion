@@ -33,8 +33,12 @@ function LibraryLayout({
   return (
     <main className="library-page">
       <section className="library-title-row">
-        <h1 className="library-title">文献库</h1>
-        <p className="library-subtitle">支持文件夹层级、拖拽整理与按目录上传。</p>
+        <div>
+          <span className="library-eyebrow">YOUR RESEARCH LIBRARY</span>
+          <h1 className="library-title">文献库</h1>
+          <p className="library-subtitle">整理、阅读，并连接你的每一份研究材料。</p>
+        </div>
+        <div className="library-count"><strong>{projects.length}</strong><span>篇文献</span></div>
       </section>
 
       <section className="library-workspace">
@@ -51,7 +55,7 @@ function LibraryLayout({
         />
 
         <div className="library-projects">
-          <div className="library-projects-header">当前目录：{selectedFolderName || '根目录'}</div>
+          <div className="library-projects-header"><span>当前位置</span><strong>{selectedFolderName || '全部文献'}</strong></div>
           <HomeUploadPanel
             onSelectFile={onSelectFile}
             label={`上传到 ${selectedFolderName || '根目录'}`}
