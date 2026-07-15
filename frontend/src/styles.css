@@ -1790,6 +1790,7 @@ select {
 }
 .auth-card button, .account-panel button { cursor: pointer; }
 .auth-primary { padding: 12px; border: 0; border-radius: 8px; background: #1e2823; color: #fff; font-weight: 650; }
+.auth-secondary { padding: 10px; border: 1px solid #b9c3bd; border-radius: 8px; background: #fff; color: #426858; }
 .auth-links { display: flex; gap: 14px; margin-top: 20px; }
 .auth-links button { border: 0; background: none; color: #426858; padding: 0; }
 .auth-success { color: #28734e; }

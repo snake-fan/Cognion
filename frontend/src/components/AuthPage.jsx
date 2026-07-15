@@ -6,7 +6,8 @@ import {
   registerUser,
   resendVerification,
   resetPassword,
-  verifyEmail
+  verifyEmail,
+  verifyEmailCode
 } from '../services/api'
 
 const query = new URLSearchParams(window.location.search)
@@ -17,6 +18,7 @@ export default function AuthPage({ onAuthenticated }) {
   const [mode, setMode] = useState(initialAction === 'reset-password' ? 'reset' : initialAction === 'verify-email' ? 'verify' : 'login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -26,7 +28,7 @@ export default function AuthPage({ onAuthenticated }) {
     window.history.replaceState({}, '', window.location.pathname)
     setLoading(true)
     verifyEmail(initialToken)
-      .then((result) => setMessage(result.message))
+      .then(onAuthenticated)
       .catch((nextError) => setError(nextError.message))
       .finally(() => setLoading(false))
   }, [mode])
@@ -61,8 +63,21 @@ export default function AuthPage({ onAuthenticated }) {
       } else if (mode === 'reset') {
         setMessage((await resetPassword(initialToken, password)).message)
       } else if (mode === 'waiting') {
-        setMessage((await resendVerification(email)).message)
+        onAuthenticated(await verifyEmailCode(email, verificationCode))
       }
+    } catch (nextError) {
+      setError(nextError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function resendCode() {
+    setLoading(true)
+    setError('')
+    setMessage('')
+    try {
+      setMessage((await resendVerification(email)).message)
     } catch (nextError) {
       setError(nextError.message)
     } finally {
@@ -109,12 +124,34 @@ export default function AuthPage({ onAuthenticated }) {
                 />
               </label>
             )}
-            {mode === 'waiting' && <p>验证邮件已发送。完成验证后再返回登录。</p>}
+            {mode === 'waiting' && (
+              <>
+                <p>验证邮件已发送。你可以点击邮件中的链接，或在此输入 6 位验证码。</p>
+                <label>
+                  验证码
+                  <input
+                    type="text"
+                    value={verificationCode}
+                    onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    required
+                  />
+                </label>
+              </>
+            )}
             {message && <p className="auth-success">{message}</p>}
             {error && <p className="auth-error">{error}</p>}
             <button className="auth-primary" type="submit" disabled={loading}>
-              {loading ? '请稍候…' : mode === 'login' ? '登录' : mode === 'register' ? '注册' : mode === 'waiting' ? '重新发送' : mode === 'forgot' ? '发送重置邮件' : '重置密码'}
+              {loading ? '请稍候…' : mode === 'login' ? '登录' : mode === 'register' ? '注册' : mode === 'waiting' ? '验证并登录' : mode === 'forgot' ? '发送重置邮件' : '重置密码'}
             </button>
+            {mode === 'waiting' && (
+              <button type="button" className="auth-secondary" onClick={resendCode} disabled={loading}>
+                重新发送验证码
+              </button>
+            )}
           </form>
         )}
         <nav className="auth-links">

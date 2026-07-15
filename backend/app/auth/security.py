@@ -49,8 +49,16 @@ def new_random_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def new_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def hash_verification_code(user_id: str, code: str) -> str:
+    return hmac.new(JWT_SECRET.encode("utf-8"), f"{user_id}:{code}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _b64encode(data: bytes) -> str:

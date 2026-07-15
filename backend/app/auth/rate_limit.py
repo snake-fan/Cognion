@@ -12,6 +12,7 @@ LIMITS = {
     "login": 10,
     "register": 5,
     "resend_verification": 5,
+    "verify_email_code": 10,
     "forgot_password": 5,
 }
 

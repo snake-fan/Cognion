@@ -73,7 +73,15 @@ export async function registerUser(email, password) {
 }
 
 export async function verifyEmail(token) {
-  return authJson('/auth/verify-email', { token })
+  const payload = await authJson('/auth/verify-email', { token })
+  setAccessToken(payload.access_token)
+  return payload.user
+}
+
+export async function verifyEmailCode(email, code) {
+  const payload = await authJson('/auth/verify-email-code', { email, code })
+  setAccessToken(payload.access_token)
+  return payload.user
 }
 
 export async function resendVerification(email) {

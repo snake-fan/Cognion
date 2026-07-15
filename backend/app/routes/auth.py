@@ -12,7 +12,9 @@ from ..auth.security import (
     create_access_token,
     hash_password,
     hash_token,
+    hash_verification_code,
     new_random_token,
+    new_verification_code,
     normalize_email,
     validate_password,
     verify_password,
@@ -40,6 +42,11 @@ class EmailBody(BaseModel):
 
 class TokenBody(BaseModel):
     token: str
+
+
+class VerificationCodeBody(BaseModel):
+    email: str
+    code: str
 
 
 class ResetPasswordBody(TokenBody):
@@ -91,12 +98,46 @@ def _replace_one_time_token(db: Session, user: User, purpose: str) -> str:
     return raw_token
 
 
-def _send_action_email(user: User, *, purpose: str, token: str) -> None:
+def _replace_verification_tokens(db: Session, user: User) -> tuple[str, str]:
+    now = datetime.utcnow()
+    user.updated_at = now
+    db.query(OneTimeToken).filter(
+        OneTimeToken.user_id == user.id,
+        OneTimeToken.purpose.in_(["verify_email", "verify_email_code"]),
+        OneTimeToken.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session=False)
+    raw_token = new_random_token()
+    code = new_verification_code()
+    expires_at = now + timedelta(minutes=ONE_TIME_TOKEN_MINUTES)
+    db.add_all(
+        [
+            OneTimeToken(
+                user_id=user.id,
+                purpose="verify_email",
+                token_hash=hash_token(raw_token),
+                expires_at=expires_at,
+            ),
+            OneTimeToken(
+                user_id=user.id,
+                purpose="verify_email_code",
+                token_hash=hash_verification_code(user.id, code),
+                expires_at=expires_at,
+            ),
+        ]
+    )
+    db.commit()
+    return raw_token, code
+
+
+def _send_action_email(user: User, *, purpose: str, token: str, code: str | None = None) -> None:
     action = "verify-email" if purpose == "verify_email" else "reset-password"
     url = f"{FRONTEND_BASE_URL}/?{urlencode({'action': action, 'token': token})}"
     if purpose == "verify_email":
         subject = "Verify your Cognion email"
-        body = f"Verify your Cognion email by opening this link within {ONE_TIME_TOKEN_MINUTES} minutes:\n\n{url}"
+        body = (
+            f"Your Cognion verification code is: {code}\n\n"
+            f"Or verify your email by opening this link within {ONE_TIME_TOKEN_MINUTES} minutes:\n\n{url}"
+        )
     else:
         subject = "Reset your Cognion password"
         body = f"Reset your Cognion password by opening this link within {ONE_TIME_TOKEN_MINUTES} minutes:\n\n{url}"
@@ -130,6 +171,22 @@ def _new_refresh_session(db: Session, user: User, request: Request) -> str:
     return raw_token
 
 
+def _complete_verification(db: Session, user: User, now: datetime) -> None:
+    db.query(OneTimeToken).filter(
+        OneTimeToken.user_id == user.id,
+        OneTimeToken.purpose.in_(["verify_email", "verify_email_code"]),
+        OneTimeToken.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session=False)
+    user.email_verified_at = now
+    db.commit()
+
+
+def _authenticated_response(db: Session, user: User, request: Request, response: Response) -> dict[str, object]:
+    refresh_token = _new_refresh_session(db, user, request)
+    _set_refresh_cookie(response, refresh_token)
+    return {"access_token": create_access_token(user.id), "token_type": "bearer", "user": _user_payload(db, user)}
+
+
 @router.post("/register", status_code=202)
 def register(body: EmailPasswordBody, request: Request, db: Session = Depends(get_db)) -> dict[str, str]:
     try:
@@ -150,16 +207,21 @@ def register(body: EmailPasswordBody, request: Request, db: Session = Depends(ge
         db.commit()
         db.refresh(user)
 
-    token = _replace_one_time_token(db, user, "verify_email")
+    token, code = _replace_verification_tokens(db, user)
     try:
-        _send_action_email(user, purpose="verify_email", token=token)
+        _send_action_email(user, purpose="verify_email", token=token, code=code)
     except MailNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     return {"message": "If registration can continue, a verification email has been sent."}
 
 
 @router.post("/verify-email")
-def verify_email(body: TokenBody, db: Session = Depends(get_db)) -> dict[str, str]:
+def verify_email(
+    body: TokenBody,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
     now = datetime.utcnow()
     token = db.query(OneTimeToken).filter(
         OneTimeToken.token_hash == hash_token(body.token),
@@ -172,10 +234,43 @@ def verify_email(body: TokenBody, db: Session = Depends(get_db)) -> dict[str, st
     user = db.query(User).filter(User.id == token.user_id, User.is_active.is_(True)).first()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification token")
-    token.used_at = now
-    user.email_verified_at = now
-    db.commit()
-    return {"message": "Email verified. Please sign in."}
+    _complete_verification(db, user, now)
+    return _authenticated_response(db, user, request, response)
+
+
+@router.post("/verify-email-code")
+def verify_email_code(
+    body: VerificationCodeBody,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        email = normalize_email(body.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    _rate_limit(db, request, "verify_email_code", email)
+    if len(body.code) != 6 or not body.code.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    now = datetime.utcnow()
+    user = db.query(User).filter(
+        User.email == email,
+        User.email_verified_at.is_(None),
+        User.is_active.is_(True),
+    ).first()
+    token = db.query(OneTimeToken).filter(
+        OneTimeToken.user_id == user.id,
+        OneTimeToken.token_hash == hash_verification_code(user.id, body.code),
+        OneTimeToken.purpose == "verify_email_code",
+        OneTimeToken.used_at.is_(None),
+        OneTimeToken.expires_at > now,
+    ).first() if user else None
+    if not user or not token:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    _complete_verification(db, user, now)
+    clear_attempts(db, action="verify_email_code", key=f"email:{email}")
+    clear_attempts(db, action="verify_email_code", key=f"ip:{_client_ip(request)}")
+    return _authenticated_response(db, user, request, response)
 
 
 @router.post("/resend-verification", status_code=202)
@@ -187,9 +282,9 @@ def resend_verification(body: EmailBody, request: Request, db: Session = Depends
     _rate_limit(db, request, "resend_verification", email)
     user = db.query(User).filter(User.email == email, User.email_verified_at.is_(None)).first()
     if user:
-        token = _replace_one_time_token(db, user, "verify_email")
+        token, code = _replace_verification_tokens(db, user)
         try:
-            _send_action_email(user, purpose="verify_email", token=token)
+            _send_action_email(user, purpose="verify_email", token=token, code=code)
         except MailNotConfiguredError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from None
     return {"message": "If the address is eligible, a verification email has been sent."}

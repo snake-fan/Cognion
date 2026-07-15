@@ -49,9 +49,16 @@ def test_registration_verification_login_refresh_and_tenant_filtering():
         response = client.post("/api/auth/register", json={"email": " Alice@Example.com ", "password": "abcdefgh"})
         assert response.status_code == 202
         verification_token = send_email.call_args.kwargs["token"]
+        verification_code = send_email.call_args.kwargs["code"]
 
     assert client.post("/api/auth/login", json={"email": "alice@example.com", "password": "abcdefgh"}).status_code == 401
-    assert client.post("/api/auth/verify-email", json={"token": verification_token}).status_code == 200
+    verified = client.post("/api/auth/verify-email", json={"token": verification_token})
+    assert verified.status_code == 200
+    assert verified.json()["user"]["email"] == "alice@example.com"
+    assert client.post(
+        "/api/auth/verify-email-code",
+        json={"email": "alice@example.com", "code": verification_code},
+    ).status_code == 400
     login = client.post("/api/auth/login", json={"email": "alice@example.com", "password": "abcdefgh"})
     assert login.status_code == 200
     access_token = login.json()["access_token"]
@@ -112,6 +119,25 @@ def test_registration_verification_login_refresh_and_tenant_filtering():
     db = Session()
     assert db.query(User).filter(User.email == "alice@example.com").first() is None
     db.close()
+
+
+def test_verification_code_logs_user_in_and_invalidates_link():
+    client, _Session = build_client()
+    with patch("backend.app.routes.auth._send_action_email") as send_email:
+        response = client.post("/api/auth/register", json={"email": "bob@example.com", "password": "abcdefgh"})
+        assert response.status_code == 202
+        verification_token = send_email.call_args.kwargs["token"]
+        verification_code = send_email.call_args.kwargs["code"]
+
+    verified = client.post(
+        "/api/auth/verify-email-code",
+        json={"email": "bob@example.com", "code": verification_code},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["access_token"]
+    assert verified.json()["user"]["email_verified"] is True
+    assert client.post("/api/auth/refresh").status_code == 200
+    assert client.post("/api/auth/verify-email", json={"token": verification_token}).status_code == 400
 
 
 def test_access_token_rejects_expired_token():
